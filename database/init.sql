@@ -1,0 +1,4 @@
+-- Placeholder initialization script.
+-- Executed automatically by the `db` service on first container start
+-- (see docker-compose.yml volume mount). Add extensions or seed data here
+-- as needed; left empty in this starter template.
