@@ -1,6 +1,14 @@
 # Root-level requirements aggregate the backend and automation dependencies
 # so tooling / CI can install everything with a single command.
 # See backend/requirements.txt for details. Playwright is included for
-# sources that need real browser rendering (e.g. linkedin, wellfound).
+# sources that need real browser rendering.
+
 -r backend/requirements.txt
+
+# Automation dependencies
 playwright==1.47.0
+requests==2.34.2
+beautifulsoup4==4.15.0
+
+# Testing dependencies
+pytest==9.1.1

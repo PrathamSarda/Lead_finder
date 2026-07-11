@@ -10,7 +10,7 @@ outreach-tracking needs grow (e.g. outreach status, notes, assigned owner).
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String
+from sqlalchemy import DateTime, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -42,8 +42,8 @@ class Company(Base):
 
     contact_page: Mapped[str | None] = mapped_column(
     String(500),
-    nullable=True
-)
+    nullable=True,
+    )
     # Lifecycle: new -> enriched -> contact_found -> contacted, etc.
     # Left as free text rather than an enum so the workflow can evolve
     # without a migration for each new status.
@@ -58,9 +58,10 @@ class Company(Base):
     )
     last_seen: Mapped[datetime | None] = mapped_column(
     DateTime(timezone=True),
-    nullable=True
-)
+    nullable=True,
+    )
+
     notes: Mapped[str | None] = mapped_column(
     Text,
-    nullable=True
-)
+    nullable=True,
+    )
