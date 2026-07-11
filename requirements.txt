@@ -9,6 +9,7 @@
 playwright==1.47.0
 requests==2.34.2
 beautifulsoup4==4.15.0
+phonenumbers==9.0.13
 
 # Testing dependencies
 pytest==9.1.1
