@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+venv/
+.venv/
+
+# Environment files
+.env
+*.env
+!.env.example
+
+# Playwright persistent browser profiles
+automation/browser/profiles/*
+!automation/browser/profiles/.gitkeep
