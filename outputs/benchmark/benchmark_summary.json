@@ -1,0 +1,20 @@
+{
+  "companies_processed": 10,
+  "websites_found": 5,
+  "website_success_rate_percent": 50.0,
+  "websites_successfully_enriched": 5,
+  "companies_with_contact_pages": 4,
+  "companies_with_primary_email": 2,
+  "email_success_rate_all_companies_percent": 20.0,
+  "email_success_rate_resolved_websites_percent": 40.0,
+  "companies_with_phone": 3,
+  "phone_success_rate_all_companies_percent": 30.0,
+  "status_counts": {
+    "no_contact_details": 2,
+    "email_found": 2,
+    "no_website_found": 5,
+    "phone_only": 1
+  },
+  "total_processing_seconds": 407.19,
+  "average_seconds_per_company": 40.72
+}

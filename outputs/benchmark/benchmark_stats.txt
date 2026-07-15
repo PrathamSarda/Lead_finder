@@ -1,0 +1,20 @@
+=================================================================
+FMCSA LEAD PIPELINE BENCHMARK
+=================================================================
+
+Companies processed: 10
+Websites found: 5 (50.0%)
+Websites successfully enriched: 5
+Companies with contact pages: 4
+Companies with primary email: 2 (20.0% of all companies)
+Email rate from resolved websites: 40.0%
+Companies with phone: 3 (30.0%)
+Average time per company: 40.72 seconds
+Total processing time: 407.19 seconds
+
+Final status counts:
+  email_found: 2
+  no_contact_details: 2
+  no_website_found: 5
+  phone_only: 1
+=================================================================
