@@ -1,182 +1,101 @@
+from __future__ import annotations
+
 import re
 from urllib.parse import urlparse
 
+from automation.intelligence.extractors.base import BaseExtractor
 from automation.intelligence.models import (
     CollectedResult,
     CompanyEvidence,
     CompanyInput,
 )
-from automation.intelligence.utils.normalizations import normalize_url
 
 
-class LinkedInExtractor:
+class LinkedInExtractor(BaseExtractor):
     """
-    Convert LinkedIn company-page search results into structured evidence.
+    Extract structured company evidence from LinkedIn search results.
     """
 
-    COMPANY_PATH_PATTERN = re.compile(
-        r"^/company/[^/?#]+/?$",
-        re.IGNORECASE,
-    )
+    @property
+    def source_name(self) -> str:
+        return "linkedin"
 
-    WEBSITE_PATTERN = re.compile(
-        r"(?:website\s*:?\s*)(https?://[^\s,;]+|www\.[^\s,;]+|"
-        r"[a-z0-9][a-z0-9.-]+\.[a-z]{2,})",
-        re.IGNORECASE,
-    )
+    @property
+    def default_confidence(self) -> float:
+        return 0.95
 
     def can_extract(
         self,
-        collected: CollectedResult,
+        collected_result: CollectedResult,
     ) -> bool:
-        """
-        Return True only for LinkedIn company-profile URLs.
-        """
 
-        parsed = urlparse(collected.result.url)
+        url = (collected_result.result.url or "").strip()
 
-        hostname = parsed.netloc.lower()
-
-        if not (
-            hostname == "linkedin.com"
-            or hostname.endswith(".linkedin.com")
-        ):
+        if not url:
             return False
 
-        return bool(
-            self.COMPANY_PATH_PATTERN.match(parsed.path)
+        try:
+            parsed = urlparse(url)
+        except ValueError:
+            return False
+
+        hostname = (parsed.hostname or "").lower()
+
+        if hostname == "linkedin.com" or hostname.endswith(".linkedin.com"):
+            hostname = "linkedin.com"
+
+        return (
+            hostname == "linkedin.com"
+            and parsed.path.startswith("/company/")
         )
 
     def extract(
         self,
         company: CompanyInput,
-        collected: CollectedResult,
-    ) -> CompanyEvidence | None:
-        """
-        Create structured evidence from a LinkedIn company result.
-        """
-        print(collected.result.url)
-        if not self.can_extract(collected):
-            return None
+        collected_results: list[CollectedResult],
+    ) -> list[CompanyEvidence]:
 
-        result = collected.result
+        evidence: list[CompanyEvidence] = []
 
-        combined_text = " ".join(
-            part
-            for part in [
-                result.title,
-                result.snippet,
-            ]
-            if part
-        )
+        for result in self.supported_results(collected_results):
 
-        website = self._extract_website(combined_text)
+            website = self._extract_website(
+                result.result.snippet
+            )
 
-        confidence = self._calculate_confidence(
-            company=company,
-            title=result.title,
-            snippet=result.snippet,
-        )
+            company_name = (
+                result.result.title.strip()
+                if result.result.title
+                else company.name
+            )
 
-        return CompanyEvidence(
-            source="linkedin",
-            title=result.title,
-            url=normalize_url(result.url),
-            snippet=result.snippet,
-            company_name=result.title or company.name,
-            website=website,
-            confidence=confidence,
-        )
+            evidence.append(
+                self.build_evidence(
+                    title=result.result.title,
+                    url=result.result.url,
+                    snippet=result.result.snippet,
+                    company_name=company_name,
+                    website=website,
+                )
+            )
 
-    def _extract_website(
-        self,
-        text: str,
-    ) -> str | None:
-        """
-        Extract a website/domain mentioned in LinkedIn search text.
-        """
-
-        match = self.WEBSITE_PATTERN.search(text)
-
-        if not match:
-            return None
-
-        website = match.group(1).rstrip(".,);]")
-
-        if website.startswith("www."):
-            return f"https://{website}"
-
-        if not website.startswith(("http://", "https://")):
-            return f"https://{website}"
-
-        return website
-
-    def _calculate_confidence(
-        self,
-        company: CompanyInput,
-        title: str,
-        snippet: str,
-    ) -> float:
-        """
-        Calculate a basic confidence score using company-name similarity.
-        """
-
-        expected_tokens = self._company_tokens(company.name)
-
-        result_tokens = self._company_tokens(
-            f"{title} {snippet}"
-        )
-
-        if not expected_tokens:
-            return 0.0
-
-        matched_tokens = expected_tokens.intersection(
-            result_tokens
-        )
-
-        token_score = len(matched_tokens) / len(
-            expected_tokens
-        )
-
-        if token_score == 1.0:
-            return 0.95
-
-        if token_score >= 0.75:
-            return 0.85
-
-        if token_score >= 0.5:
-            return 0.65
-
-        return 0.35
+        return evidence
 
     @staticmethod
-    def _company_tokens(
-        value: str,
-    ) -> set[str]:
-        """
-        Normalize a company name into meaningful comparison tokens.
-        """
+    def _extract_website(
+        snippet: str,
+    ) -> str | None:
 
-        ignored_tokens = {
-            "inc",
-            "incorporated",
-            "llc",
-            "ltd",
-            "limited",
-            "corp",
-            "corporation",
-            "company",
-            "co",
-            "the",
-        }
+        if not snippet:
+            return None
 
-        tokens = re.findall(
-            r"[a-z0-9]+",
-            value.lower(),
+        match = re.search(
+            r"https?://[^\s;]+",
+            snippet,
+            re.IGNORECASE,
         )
 
-        return {
-            token
-            for token in tokens
-            if token not in ignored_tokens
-        }
+        if match:
+            return match.group(0).rstrip(".,;)")
+
+        return None
