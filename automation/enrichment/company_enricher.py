@@ -75,8 +75,12 @@ def enrich_company(
             continue
 
         page_html = page_result.html or ""
+        
         resolved_page_url = page_result.final_url or contact_page
-
+        if "contact-us" in resolved_page_url:
+                print("\nCONTACT PAGE HTML (first 3000 chars)")
+                print("-" * 80)
+                print(page_html[:3000])
         result.fetched_pages.append(resolved_page_url)
 
         page_emails = extract_emails(page_html)

@@ -3,25 +3,37 @@ from automation.intelligence.models import CompanyInput, SearchQuery
 
 class QueryBuilder:
 
-    SEARCH_TEMPLATES = [
-    ("linkedin", 'site:linkedin.com/company "{name}"', 1),
-    ("indeed", 'site:indeed.com "{name}"', 2),
-    ("glassdoor", 'site:glassdoor.com "{name}"', 2),
-    ("clutch", 'site:clutch.co "{name}"', 2),
-    ("website", '"{name}" official website', 1),
-    ("contact", '"{name}" contact', 2),
-    ("email", '"{name}" email', 3),
-    ("phone", '"{name}" phone', 3),
+    SEARCH_STAGES = [
+
+    [
+        ("linkedin", 'site:linkedin.com/company "{name}"', 1),
+    ],
+
+    [
+        ("indeed", 'site:indeed.com "{name}"', 2),
+    ],
+
+    [
+        ("website", '"{name}" official website', 1),
+    ],
+
+    [
+        ("email", '"{name}" email', 3),
+    ],
 ]
 
-    def build(
+    def build_stage(
     self,
     company: CompanyInput,
+    stage: int,
 ) -> list[SearchQuery]:
 
         queries = []
 
-        for source, template, priority in self.SEARCH_TEMPLATES:
+        if stage >= len(self.SEARCH_STAGES):
+            return queries
+
+        for source, template, priority in self.SEARCH_STAGES[stage]:
 
             queries.append(
                 SearchQuery(
@@ -32,3 +44,5 @@ class QueryBuilder:
             )
 
         return queries
+    def stage_count(self) -> int:
+        return len(self.SEARCH_STAGES)

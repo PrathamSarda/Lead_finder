@@ -61,6 +61,20 @@ class EvidenceCollector:
 
         return all_results   
 
+    def collect_stage(
+    self,
+    company: CompanyInput,
+    stage: int,
+):
+        queries = self.query_builder.build_stage(
+            company,
+            stage,
+        )
+
+        return self.collect_queries(
+            queries,
+        )
+
     def collect(
     self,
     company: CompanyInput,

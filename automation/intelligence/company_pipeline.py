@@ -47,37 +47,79 @@ class CompanyPipeline:
         self.merger = EvidenceMerger()
 
     def run(
-        self,
-        company: CompanyInput,
-    ) -> CompanyEvidence | None:
+    self,
+    company: CompanyInput,
+) -> CompanyEvidence | None:
 
-        # Build queries
-        queries = self.query_builder.build(company)
+        merged: CompanyEvidence | None = None
 
-        # Search
-        collected = self.collector.collect_queries(
-            queries,
-        )
+        for stage in range(
+            self.query_builder.stage_count()
+        ):
 
-        # Filter
-        filtered = self.filter.filter(
-            company,
-            collected,
-        )
+            print(f"\n========== Stage {stage} ==========")
 
-        # Extract evidence
-        evidence: list[CompanyEvidence] = []
-
-        for extractor in self.extractors:
-
-            evidence.extend(
-                extractor.extract(
-                    company,
-                    filtered,
-                )
+            collected = self.collector.collect_stage(
+                company,
+                stage,
             )
 
-        # Merge
-        return self.merger.merge(
-            evidence,
-        )
+            if not collected:
+                continue
+
+            filtered = self.filter.filter(
+                company,
+                collected,
+            )
+
+            evidence: list[CompanyEvidence] = []
+
+            for extractor in self.extractors:
+
+                evidence.extend(
+                    extractor.extract(
+                        company,
+                        filtered,
+                    )
+                )
+
+            if not evidence:
+                continue
+
+            print("\nEvidence")
+            print("-" * 80)
+
+            for item in evidence:
+
+                print(
+                    f"{item.source:10}"
+                    f" | {item.company_name}"
+                    f" | {item.website}"
+                    f" | {item.confidence}"
+                )
+
+            merged = self.merger.merge(
+                evidence,
+            )
+
+            if merged is None:
+                continue
+
+            print("\nMerged website:", merged.website)
+
+            #
+            # EARLY STOP
+            #
+            if merged.website:
+
+                print(
+                    "\nOfficial website found."
+                )
+
+                print(
+                    "Stopping further search stages."
+                )
+
+                return merged
+
+        return merged
