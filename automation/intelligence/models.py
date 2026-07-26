@@ -25,11 +25,18 @@ class CompanyEvidence:
     snippet: str
 
     # Structured company information
+    # Structured company information
     company_name: str | None = None
     website: str | None = None
     email: str | None = None
     phone: str | None = None
     location: str | None = None
+
+    # Confidence assigned by the extractor
+    confidence: float = 0.0
+
+    # Sources that contributed to the merged result
+    sources: list[str] | None = None
 
     # Confidence assigned by the extractor
     confidence: float = 0.0
