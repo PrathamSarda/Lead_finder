@@ -31,7 +31,9 @@ class EvidenceMerger:
             url=best.url,
             snippet=best.snippet,
             company_name=best.company_name,
-            website=best.website,
+            website=self._select_best_website(
+            evidence_list,
+            ),
             email=best.email,
             phone=best.phone,
             location=best.location,
@@ -75,3 +77,32 @@ class EvidenceMerger:
                 sources.append(item.source)
 
         return sorted(sources)
+
+    @staticmethod
+    def _select_best_website(
+        evidence_list: list[CompanyEvidence],
+    ) -> str | None:
+
+        website_scores: dict[str, float] = {}
+
+        for evidence in evidence_list:
+
+            if not evidence.website:
+                continue
+
+            website = evidence.website.rstrip("/").lower()
+
+            website_scores.setdefault(
+                website,
+                0.0,
+            )
+
+            website_scores[website] += evidence.confidence
+
+        if not website_scores:
+            return None
+
+        return max(
+            website_scores,
+            key=website_scores.get,
+        )

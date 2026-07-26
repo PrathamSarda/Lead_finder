@@ -24,12 +24,11 @@ class EvidenceCollector:
         self.search_engine = search_engine
         self.query_builder = QueryBuilder()
 
-    def collect(
-        self,
-        company: CompanyInput,
-    ):
+    def collect_queries(
+    self,
+    queries: list[SearchQuery],
+):
 
-        queries = self.query_builder.build(company)
 
         all_results = []
 
@@ -60,4 +59,16 @@ class EvidenceCollector:
                 )
             )
 
-        return all_results     
+        return all_results   
+
+    def collect(
+    self,
+    company: CompanyInput,
+):
+        """
+        Backwards-compatible helper.
+        """
+
+        queries = self.query_builder.build(company)
+
+        return self.collect_queries(queries)  

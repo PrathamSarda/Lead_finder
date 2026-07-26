@@ -199,3 +199,74 @@ def test_sources_are_deduplicated():
         "generic",
         "linkedin",
     ]
+
+def test_website_votes_are_combined():
+
+    merger = EvidenceMerger()
+
+    merged = merger.merge(
+        [
+            make_evidence(
+                source="linkedin",
+                website="https://abc.com",
+                confidence=0.95,
+            ),
+            make_evidence(
+                source="generic",
+                website="https://abc.com",
+                confidence=0.70,
+            ),
+            make_evidence(
+                source="indeed",
+                website="https://xyz.com",
+                confidence=0.90,
+            ),
+        ]
+    )
+
+    assert merged.website == "https://abc.com"
+
+def test_multiple_sources_can_overrule_highest_confidence():
+
+    merger = EvidenceMerger()
+
+    merged = merger.merge(
+        [
+            make_evidence(
+                source="linkedin",
+                website="https://abc.com",
+                confidence=0.95,
+            ),
+            make_evidence(
+                source="generic",
+                website="https://xyz.com",
+                confidence=0.90,
+            ),
+            make_evidence(
+                source="clutch",
+                website="https://xyz.com",
+                confidence=0.85,
+            ),
+        ]
+    )
+
+    assert merged.website == "https://xyz.com"
+
+def test_website_comparison_ignores_trailing_slashes():
+
+    merger = EvidenceMerger()
+
+    merged = merger.merge(
+        [
+            make_evidence(
+                website="https://abc.com",
+                confidence=0.8,
+            ),
+            make_evidence(
+                website="https://abc.com/",
+                confidence=0.7,
+            ),
+        ]
+    )
+
+    assert merged.website == "https://abc.com"
