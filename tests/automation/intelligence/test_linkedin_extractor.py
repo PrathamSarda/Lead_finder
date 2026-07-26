@@ -12,14 +12,16 @@ def test_can_extract():
 
     result = CollectedResult(
         query=SearchQuery(
-            source="linkedin",
-            query="",
+        source="linkedin",
+        query="",
         ),
-        result=SearchResult(
-            title="Brockman Trucking Inc",
-            url="https://www.linkedin.com/company/brockman-trucking-inc",
-            snippet="Website: http://www.brockmantrailers.com",
-        ),
+    result=SearchResult(
+    title="Brockman Trucking Inc",
+    url="https://www.linkedin.com/company/brockman-trucking-inc",
+    snippet="Website: http://www.brockmantrailers.com",
+    provider="test",
+    position=1,
+    )
     )
 
     assert extractor.can_extract(result)
@@ -33,16 +35,18 @@ def test_extract():
     )
 
     result = CollectedResult(
-        query=SearchQuery(
-            source="linkedin",
-            query="",
-        ),
-        result=SearchResult(
-            title="Brockman Trucking Inc",
-            url="https://www.linkedin.com/company/brockman-trucking-inc",
-            snippet="Website: http://www.brockmantrailers.com",
-        ),
-    )
+    query=SearchQuery(
+        source="linkedin",
+        query="",
+    ),
+    result=SearchResult(
+        title="Brockman Trucking Inc",
+        url="https://www.linkedin.com/company/brockman-trucking-inc",
+        snippet="Website: http://www.brockmantrailers.com",
+        provider="test",
+        position=1,
+    ),
+)
 
     evidence = extractor.extract(
         company,

@@ -92,17 +92,19 @@ class EvidenceMerger:
 
             website = evidence.website.rstrip("/").lower()
 
-            website_scores[website] = max(
-            website_scores.get(website, 0.0),
-            evidence.confidence,
+            website_scores[website] = (
+                website_scores.get(website, 0.0)
+                + evidence.confidence
             )
 
         if not website_scores:
             return None
 
         print("\nWebsite scores:")
+
         for website, score in website_scores.items():
             print(f"{website:35} {score}")
+
         return max(
             website_scores,
             key=website_scores.get,

@@ -4,12 +4,12 @@ import re
 from difflib import SequenceMatcher
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from ddgs import results
 
 from automation.intelligence.models import (
     CollectedResult,
     CompanyInput,
 )
+from automation.resolvers.zenserp_resolver import LEGAL_SUFFIXES
 
 
 class ResultFilter:
@@ -26,6 +26,23 @@ class ResultFilter:
     """
 
     DEFAULT_MINIMUM_SCORE = 0.55
+
+    LEGAL_SUFFIXES = {
+    "inc",
+    "inc.",
+    "llc",
+    "l.l.c",
+    "ltd",
+    "ltd.",
+    "corp",
+    "corp.",
+    "corporation",
+    "company",
+    "co",
+    "co.",
+    "limited",
+    "plc",
+}
 
     SOURCE_SCORES: dict[str, float] = {
         "linkedin": 1.00,
@@ -113,6 +130,7 @@ class ResultFilter:
 
         self.minimum_score = minimum_score
 
+    
     def filter(
         self,
         company: CompanyInput,
@@ -143,6 +161,15 @@ class ResultFilter:
 
         for index, collected_result in enumerate(results):
             score = self.score(company, collected_result)
+            name_similarity = self._company_similarity(
+            company_name,
+            self._get_result_value(
+                collected_result,
+                "title",
+            ),
+        )   
+            if name_similarity < 0.70:
+                continue
 
             if score < self.minimum_score:
                 continue
@@ -384,9 +411,15 @@ class ResultFilter:
             normalized_candidate,
         ).ratio()
 
+        token_overlap = self._company_token_overlap(
+        company_name,
+        candidate_text,
+)
+
         return max(
             full_similarity,
             best_window_similarity,
+            token_overlap,
         )
 
     def _company_token_overlap(
@@ -703,3 +736,5 @@ class ResultFilter:
         )
 
         return str(value or "").strip()
+
+    
