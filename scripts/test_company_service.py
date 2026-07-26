@@ -3,8 +3,12 @@ from automation.intelligence.models import CompanyInput
 
 service = CompanyService()
 
+company_name = input(
+    "Company Name: "
+)
+
 company = CompanyInput(
-    name="BROCKMAN TRUCKING INC",
+    name=company_name,
 )
 
 result = service.resolve(company)
