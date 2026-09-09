@@ -5,6 +5,7 @@ from automation.intelligence.models import (
     SearchQuery,
 )
 from automation.resolvers.providers.base import SearchResult
+import pytest
 
 
 def make_collected_result(
@@ -499,3 +500,37 @@ def test_preserves_original_result_metadata():
     assert item.title == "Example Company | Official Website"
     assert item.url == "https://example.com/about"
     assert item.snippet == "Official company information."
+
+
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.zoominfo.com/c/example/123",
+        "https://www.crunchbase.com/organization/example",
+        "https://dotsearch.us/carrier/123",
+        "https://www.fyple.com/company/example",
+        "https://www.osha.gov/example",
+        "https://safer.fmcsa.dot.gov/query.asp?id=123",
+        "https://reviews.birdeye.com/example",
+        "https://newbizbot.ai/company/example",
+    ],
+)
+def test_rejects_directory_and_government_domains(
+    url: str,
+):
+    extractor = GenericExtractor()
+
+    result = make_collected_result(
+        title="Example Company",
+        url=url,
+        snippet="Example Company details",
+    )
+
+    evidence = extractor.extract(
+        CompanyInput(name="Example Company"),
+        [result],
+    )
+
+    assert evidence == []

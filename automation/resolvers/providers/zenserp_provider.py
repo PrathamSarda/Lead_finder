@@ -1,8 +1,5 @@
 from __future__ import annotations
-from urllib import response
-from wsgiref import headers
 from dotenv import load_dotenv
-from fastapi import params
 
 load_dotenv()
 
@@ -212,7 +209,7 @@ class ZenserpProvider(SearchProvider):
     self.endpoint,
     headers=headers,
     params=params,
-    timeout=self.timeout,
+    timeout=20,
 )
 
         except requests.Timeout as exc:

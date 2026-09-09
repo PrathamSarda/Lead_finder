@@ -79,11 +79,29 @@ class EvidenceMerger:
         return sorted(sources)
 
     @staticmethod
+    @staticmethod
     def _select_best_website(
         evidence_list: list[CompanyEvidence],
     ) -> str | None:
 
         website_scores: dict[str, float] = {}
+
+        BLOCKED_DOMAINS = {
+            "zoominfo.com",
+            "crunchbase.com",
+            "linkedin.com",
+            "indeed.com",
+            "glassdoor.com",
+            "facebook.com",
+            "instagram.com",
+            "yelp.com",
+            "yellowpages.com",
+            "mapquest.com",
+            "birdeye.com",
+            "osha.gov",
+            "safer.fmcsa.dot.gov",
+            "fmcsa.dot.gov",
+        }
 
         for evidence in evidence_list:
 
@@ -91,6 +109,24 @@ class EvidenceMerger:
                 continue
 
             website = evidence.website.rstrip("/").lower()
+
+            # Remove protocol for domain comparison
+            domain = website
+
+            if domain.startswith("https://"):
+                domain = domain[8:]
+
+            elif domain.startswith("http://"):
+                domain = domain[7:]
+
+            domain = domain.split("/")[0]
+
+            # Never select known directory / government / social domains
+            if (
+                domain in BLOCKED_DOMAINS
+                or any(domain.endswith("." + blocked) for blocked in BLOCKED_DOMAINS)
+            ):
+                continue
 
             website_scores[website] = (
                 website_scores.get(website, 0.0)

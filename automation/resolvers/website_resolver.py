@@ -22,7 +22,7 @@ from automation.resolvers.providers.base import (
     SearchResult,
 )
 from automation.resolvers.providers.ddgs_resolver import DDGSProvider
-from automation.resolvers.zenserp_resolver import (
+from automation.resolvers.providers.zenserp_provider import (
     ZenserpProvider,
 )
 from automation.resolvers.query_builder import (
@@ -79,6 +79,7 @@ class WebsiteResolver:
         request_timeout: float = 12.0,
         max_validation_candidates: int = 8,
         max_results_per_provider: int = 40,
+        min_results_before_broader_query: int = 5,
         session: requests.Session | None = None,
     ) -> None:
         """
@@ -132,12 +133,22 @@ class WebsiteResolver:
                 "max_results_per_provider must be greater than zero."
             )
 
+        if min_results_before_broader_query <= 0:
+            raise ValueError(
+                "min_results_before_broader_query must be "
+                "greater than zero."
+            )
+
         self.providers = (
             providers
             if providers is not None
             else [
-                ZenserpProvider(),
+                # Free provider first. Zenserp is paid, so it only
+                # runs as a fallback when DDGS fails to produce a
+                # validated result. Do not reorder this without
+                # updating the cost assumptions in the pipeline docs.
                 DDGSProvider(),
+                ZenserpProvider(),
             ]
         )
 
@@ -148,6 +159,9 @@ class WebsiteResolver:
         )
         self.max_results_per_provider = (
             max_results_per_provider
+        )
+        self.min_results_before_broader_query = (
+            min_results_before_broader_query
         )
 
         self.session = session or requests.Session()
@@ -403,6 +417,26 @@ class WebsiteResolver:
 
         for query in queries:
             if len(results) >= self.max_results_per_provider:
+                break
+
+            # Each query variant costs a real, often paid, API call.
+            # If an earlier (more specific) variant already returned
+            # a healthy set of results, broader variants are unlikely
+            # to add a better candidate and are not worth the extra
+            # request. Only fall through to the next, broader query
+            # when the current one came back thin or empty.
+            if (
+                results
+                and len(results)
+                >= self.min_results_before_broader_query
+            ):
+                logger.debug(
+                    "Stopping query fan-out for %s after %d "
+                    "result(s); skipping remaining broader "
+                    "query variants.",
+                    self._provider_name(provider),
+                    len(results),
+                )
                 break
 
             logger.debug(

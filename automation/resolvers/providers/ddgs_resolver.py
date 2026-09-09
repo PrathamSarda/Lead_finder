@@ -34,6 +34,7 @@ class DDGSProvider(SearchProvider):
         max_results: int = 10,
         region: str = "us-en",
         safesearch: str = "off",
+        backend: str = "duckduckgo",
     ) -> None:
         if max_results <= 0:
             raise ValueError("max_results must be greater than zero.")
@@ -41,6 +42,14 @@ class DDGSProvider(SearchProvider):
         self.max_results = max_results
         self.region = region
         self.safesearch = safesearch
+        # Pinned to the duckduckgo backend deliberately. The ddgs
+        # library's default "auto" backend fans out across several
+        # other search engines' own result pages (Google, Yahoo,
+        # Brave, Startpage, Mojeek) when one is slow/blocked, which
+        # is both much slower and a real risk of getting this IP
+        # rate-limited or blocked by those engines. A single,
+        # consistent backend is safer and faster.
+        self.backend = backend
 
     def search(self, query: str) -> list[SearchResult]:
         normalized_query = query.strip()
@@ -56,6 +65,7 @@ class DDGSProvider(SearchProvider):
                         region=self.region,
                         safesearch=self.safesearch,
                         max_results=self.max_results,
+                        backend=self.backend,
                     )
                 )
 

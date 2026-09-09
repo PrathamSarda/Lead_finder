@@ -9,12 +9,13 @@ from typing import Optional
 from automation.enrichment.company_enricher import enrich_company
 from automation.enrichment.email_prioritizer import prioritize_emails
 from automation.models.search_filters import SearchFilters
-from automation.resolvers.ddgs_resolver import DDGSWebsiteResolver
 from automation.sources.fmcsa.connector import FMCSAConnector
+from automation.intelligence.company_service import CompanyService
+from automation.intelligence.models import CompanyInput
 
 
-DEFAULT_COMPANY_LIMIT = 10
-DEFAULT_DELAY_SECONDS = 2.0
+DEFAULT_COMPANY_LIMIT = 20
+DEFAULT_DELAY_SECONDS = 0
 
 BENCHMARK_DIRECTORY = Path("outputs/benchmark")
 RESULTS_FILE = BENCHMARK_DIRECTORY / "benchmark_100.csv"
@@ -402,10 +403,7 @@ def run_fmcsa_benchmark(
 
     connector = FMCSAConnector()
 
-    resolver = DDGSWebsiteResolver(
-        max_results=10,
-        validation_limit=5,
-    )
+    service = CompanyService()
 
     companies = connector.search(
         SearchFilters(
@@ -469,83 +467,49 @@ def run_fmcsa_benchmark(
         error = ""
 
         try:
-            resolution = resolver.resolve(
-                company_name=company.company_name,
-                location=company.location,
-            )
+            result = service.resolve(
+    CompanyInput(
+        name=company.company_name,
+    )
+)
 
-            website_found = resolution.success
-            website = resolution.website or ""
-            resolver_provider = (
-                resolution.provider or ""
-            )
-            resolver_candidates_checked = len(
-                resolution.checked_candidates
-            )
-            resolver_error = resolution.error or ""
+            if result is not None:
 
-            if website_found and website:
-                enrichment = enrich_company(
-                    website=website,
-                    region="US",
-                )
+                website_found = bool(result.website)
 
-                enrichment_success = (
-                    enrichment.success
+                website = result.website or ""
+
+                enrichment_success = website_found
+
+                primary_email = result.email or ""
+
+                emails_found = (
+                    1
+                    if result.email
+                    else 0
                 )
 
-                contact_pages_found = len(
-                    enrichment.contact_pages
-                )
-                contact_pages = "; ".join(
-                    enrichment.contact_pages
-                )
-
-                emails_found = len(
-                    enrichment.emails
-                )
-                all_emails = "; ".join(
-                    enrichment.emails
+                all_emails = (
+                    result.email
+                    if result.email
+                    else ""
                 )
 
-                phones_found = len(
-                    enrichment.phone_numbers
-                )
-                phone_numbers = "; ".join(
-                    enrichment.phone_numbers
-                )
-
-                fetched_pages = len(
-                    enrichment.fetched_pages
-                )
-                failed_pages = len(
-                    enrichment.failed_pages
+                phones_found = (
+                    1
+                    if result.phone
+                    else 0
                 )
 
-                if enrichment.error:
-                    error = enrichment.error
-
-                priority = prioritize_emails(
-                    emails=enrichment.emails,
-                    website=(
-                        enrichment.homepage_url
-                        or website
-                    ),
+                phone_numbers = (
+                    result.phone
+                    if result.phone
+                    else ""
                 )
 
-                primary_email = (
-                    priority.primary_email or ""
+                resolver_provider = ", ".join(
+                    result.sources
                 )
-                business_emails = "; ".join(
-                    priority.business_emails
-                )
-                personal_emails = "; ".join(
-                    priority.personal_emails
-                )
-                rejected_emails = "; ".join(
-                    priority.rejected_emails
-                )
-
         except Exception as exc:
             error = (
                 f"{type(exc).__name__}: {exc}"
@@ -639,3 +603,5 @@ def run_fmcsa_benchmark(
     _write_summary(summary)
 
     return summary
+if __name__ == "__main__":
+    run_fmcsa_benchmark()

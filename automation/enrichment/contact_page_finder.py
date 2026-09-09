@@ -20,6 +20,50 @@ CONTACT_KEYWORDS = {
     "office",
 }
 
+EXCLUDED_KEYWORDS = {
+    "blog",
+    "news",
+    "article",
+    "archive",
+    "category",
+    "press",
+    "privacy",
+    "terms",
+}
+
+PRIORITY_KEYWORDS = (
+    "contact",
+    "contact-us",
+    "about",
+    "team",
+    "staff",
+    "locations",
+    "support",
+    "careers",
+    "employment",
+)
+
+BLOCKED_DOMAINS = {
+    "zoominfo.com",
+    "crunchbase.com",
+    "linkedin.com",
+    "manta.com",
+    "buzzfile.com",
+    "dandb.com",
+    "fyple.com",
+    "dotsearch.us",
+    "rocketreach.co",
+    "signalhire.com",
+    "opencorporates.com",
+    "yellowpages.com",
+    "mapquest.com",
+    "facebook.com",
+    "instagram.com",
+    "x.com",
+    "youtube.com",
+}
+
+
 MAX_CONTACT_PAGES = 5
 
 IGNORED_EXTENSIONS = {
