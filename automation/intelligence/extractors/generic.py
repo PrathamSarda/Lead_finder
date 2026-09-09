@@ -9,6 +9,7 @@ from automation.intelligence.models import (
     CompanyEvidence,
     CompanyInput,
 )
+from backend.app.models import company
 
 
 class GenericExtractor(BaseExtractor):
@@ -30,6 +31,58 @@ class GenericExtractor(BaseExtractor):
         "x.com",
         "youtube.com",
     }
+
+    BLOCKED_DOMAINS = {
+    "linkedin.com",
+    "zoominfo.com",
+    "crunchbase.com",
+    "manta.com",
+    "buzzfile.com",
+    "dandb.com",
+    "fyple.com",
+    "dotsearch.us",
+    "rocketreach.co",
+    "signalhire.com",
+    "opencorporates.com",
+    "yellowpages.com",
+    "mapquest.com",
+    "facebook.com",
+    "instagram.com",
+    "x.com",
+    "twitter.com",
+    "youtube.com",
+    "glassdoor.com",
+    "indeed.com",
+    "birdeye.com",
+    "newbizbot.ai",
+    "osha.gov",
+    "fmcsa.dot.gov",
+    "myplaniq.com",
+"thomasnet.com",
+"mckeesrocks.com",
+"puc.pa.gov",
+    "twitter.com",
+    "x.com",
+
+    "zoominfo.com",
+    "crunchbase.com",
+    "pitchbook.com",
+    "apollo.io",
+
+    "birdeye.com",
+    "reviews.birdeye.com",
+
+    "dcontrol.com",
+    "roserocket.com",
+    "logisticsvendorlocator.com",
+
+    "whatsinproducts.com",
+    "appsruntheworld.com",
+    "newbizbot.ai",
+
+    "safer.fmcsa.dot.gov",
+    "osha.gov",
+}
 
     EMAIL_PATTERN = re.compile(
         r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"
@@ -123,37 +176,53 @@ class GenericExtractor(BaseExtractor):
                 search_result.snippet,
                 company,
             )
+            website = self._website_from_url(
+    search_result.url,
+)
+
+            if website and self._is_blocked_domain(website):
+                continue
 
             evidence.append(
-                self.build_evidence(
-                    title=search_result.title,
-                    url=search_result.url,
-                    snippet=search_result.snippet,
-                    company_name=company_name,
-                    website=self._website_from_url(search_result.url),
-                    email=email,
-                    phone=phone,
-                    location=location,
-                    confidence=self._calculate_confidence(
-                        email=email,
-                        phone=phone,
-                        company_name=company_name,
-                        expected_company_name=company.name,
-                    ),
-                )
-            )
-
+    self.build_evidence(
+        title=search_result.title,
+        url=search_result.url,
+        snippet=search_result.snippet,
+        company_name=company_name,
+        website=self._website_from_url(search_result.url),
+        email=email,
+        phone=phone,
+        location=location,
+        confidence=self._calculate_confidence(
+            email=email,
+            phone=phone,
+            company_name=company_name,
+            expected_company_name=company.name,
+            website=self._website_from_url(search_result.url),
+        ),
+    )
+)
+        
         return evidence
-
+ 
     def _calculate_confidence(
-        self,
-        *,
-        email: str | None,
-        phone: str | None,
-        company_name: str | None,
-        expected_company_name: str,
-    ) -> float:
-        confidence = self.default_confidence
+    self,
+    *,
+    email: str | None,
+    phone: str |None,
+    company_name: str | None,
+    expected_company_name: str,
+    website: str | None,
+) -> float:
+
+        confidence = 0.60
+        if company_name:
+            if (
+                self._normalize_company_name(company_name)
+                ==
+                self._normalize_company_name(expected_company_name)
+            ):
+                confidence += 0.20
 
         if email:
             confidence += 0.10
@@ -161,13 +230,17 @@ class GenericExtractor(BaseExtractor):
         if phone:
             confidence += 0.05
 
-        if (
-            company_name
-            and expected_company_name
-            and self._normalize_company_name(company_name)
-            == self._normalize_company_name(expected_company_name)
-        ):
-            confidence += 0.10
+        if website:
+
+            website = website.lower()
+
+            expected = (
+                self._normalize_company_name(expected_company_name)
+                .replace(" ", "")
+            )
+
+            if expected in website:
+                confidence += 0.10
 
         return min(confidence, 0.95)
 
@@ -301,50 +374,6 @@ class GenericExtractor(BaseExtractor):
 
         return cleaned_title
 
-    @staticmethod
-    def _extract_location(
-        snippet: str,
-        company: CompanyInput,
-    ) -> str | None:
-        fallback_location = ", ".join(
-            part
-            for part in (
-                company.city,
-                company.state,
-            )
-            if part
-        )
-
-        if not snippet:
-            return fallback_location or None
-
-        # Match one or more capitalized city-name words followed by
-        # a two-letter US state abbreviation.
-        location_match = re.search(
-            r"""
-            \b
-            (
-                [A-Z][A-Za-z.'-]*
-                (?:
-                    \s+
-                    [A-Z][A-Za-z.'-]*
-                )*
-            )
-            ,\s*
-            ([A-Z]{2})
-            \b
-            """,
-            snippet,
-            re.VERBOSE,
-        )
-
-        if location_match:
-            city = " ".join(location_match.group(1).split())
-            state = location_match.group(2)
-
-            return f"{city}, {state}"
-
-        return fallback_location or None
 
     @staticmethod
     def _extract_location(
@@ -413,3 +442,16 @@ class GenericExtractor(BaseExtractor):
         )
 
         return " ".join(normalized.split())
+
+    @classmethod
+    def _is_blocked_domain(
+        cls,
+        website: str,
+    ) -> bool:
+
+        website = website.lower()
+
+        return any(
+            blocked in website
+            for blocked in cls.BLOCKED_DOMAINS
+        )
