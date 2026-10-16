@@ -25,12 +25,20 @@ class CompanyEvidence:
     snippet: str
 
     # Structured company information
-    # Structured company information
     company_name: str | None = None
     website: str | None = None
     email: str | None = None
     phone: str | None = None
     location: str | None = None
+
+    # Provenance source URLs
+    website_source_url: str | None = None
+    email_source_url: str | None = None
+    phone_source_url: str | None = None
+
+    # Verification status & reason
+    status: str | None = None
+    status_reason: str | None = None
 
     # Confidence assigned by the extractor
     confidence: float = 0.0
@@ -38,8 +46,7 @@ class CompanyEvidence:
     # Sources that contributed to the merged result
     sources: list[str] | None = None
 
-    # Confidence assigned by the extractor
-    confidence: float = 0.0
+
 
     def __post_init__(self) -> None:
         # Keep confidence within [0, 1]
@@ -59,6 +66,11 @@ class CompanyEvidence:
             "email",
             "phone",
             "location",
+            "website_source_url",
+            "email_source_url",
+            "phone_source_url",
+            "status",
+            "status_reason",
         ):
             value = getattr(self, field)
 

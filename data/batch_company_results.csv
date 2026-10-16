@@ -1,0 +1,9 @@
+input_company,input_city,input_state,status,resolved_company,website,email,phone,location,sources,confidence,runtime_seconds,error
+GLEN DYER,MOBILE,AL,NO_EVIDENCE,,,,,,,,32.31,
+CHEROKEE CULVERT COMPANY INC,MACON,GA,RESOLVED,CHEROKEE CULVERT COMPANY INC,https://cherokeeculvert.com/,cherokeeculvert@att.net,+14782144236,"MACON, GA","ddgs, enrichment",1.0,8.2,
+CAIN AM BICKLEY LLC,MARSHALLVILLE,GA,NO_EVIDENCE,,,,,,,,31.21,
+BIOLAB INC,LAWRENCEVILLE,GA,RESOLVED,BIOLAB INC,http://www.biolab-chemicals.com,info@biolab-chemicals.com,+97225841110,"LAWRENCEVILLE, GA","generic, linkedin, enrichment",1.0,44.7,
+CWT FARMS INTERNATIONAL INC,GAINESVILLE,GA,RESOLVED,CWT FARMS INTERNATIONAL INC,https://cwt-farms.org/,,,"GAINESVILLE, GA",ddgs,0.9,7.33,
+C & K TRANSFER LLC,GRINNELL,IA,RESOLVED,C & K TRANSFER LLC,http://candktransfer.com,,,"GRINNELL, IA","generic, linkedin",0.95,39.4,
+FELIX ANCHUSTEGUI TRUCKING INC,NAMPA,ID,NO_EVIDENCE,,,,,,,,25.57,
+RICHARD D AUSTIN,SALMON,ID,NO_EVIDENCE,,,,,,,,29.51,

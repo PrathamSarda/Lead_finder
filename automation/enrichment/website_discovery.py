@@ -73,17 +73,11 @@ def generate_domain_candidates(
         hyphenated_name,
     ]
 
-    if len(tokens) >= 2:
-        domain_names.append(
-            "".join(token[0] for token in tokens)
-        )
-
     candidates = []
 
-    for domain_name in domain_names:
+    for domain_name in (joined_name, hyphenated_name):
         for tld in DEFAULT_TLDS:
             candidate = f"https://{domain_name}{tld}"
-
             if candidate not in candidates:
                 candidates.append(candidate)
 
@@ -96,6 +90,8 @@ def _extract_page_text(html: str) -> str:
     """
 
     soup = BeautifulSoup(html, "html.parser")
+    for element in soup(["script", "style", "noscript"]):
+        element.decompose()
 
     return soup.get_text(
         " ",
@@ -119,7 +115,12 @@ def _matches_company(
     if not company_tokens:
         return False
 
-    page_text = _extract_page_text(html)
+    soup = BeautifulSoup(html, "html.parser")
+    title = soup.title.get_text(" ", strip=True).lower() if soup.title else ""
+    headings = " ".join(
+        h.get_text(" ", strip=True).lower()
+        for h in soup.find_all(["h1", "h2"], limit=4)
+    )
 
     hostname = (
         urlparse(final_url)
@@ -128,21 +129,21 @@ def _matches_company(
         .removeprefix("www.")
     )
 
-    searchable_text = f"{hostname} {page_text}"
+    # Check hostname match: at least one token must be in hostname
+    joined_name = "".join(company_tokens)
+    hostname_clean = re.sub(r"[^a-z0-9]", "", hostname.split(".")[0])
 
-    matched_tokens = sum(
-        1
-        for token in company_tokens
-        if token in searchable_text
+    if joined_name in hostname_clean or hostname_clean in joined_name:
+        return True
+
+    # Otherwise check title and headings for company tokens
+    branding_text = f"{title} {headings}"
+    matched_in_branding = sum(
+        1 for token in company_tokens if token in branding_text
     )
 
-    required_matches = (
-        1
-        if len(company_tokens) == 1
-        else 2
-    )
-
-    return matched_tokens >= required_matches
+    required = len(company_tokens) if len(company_tokens) <= 2 else len(company_tokens) - 1
+    return matched_in_branding >= max(1, required)
 
 
 def discover_company_website(
@@ -173,7 +174,7 @@ def discover_company_website(
     for candidate in candidates:
         checked_candidates.append(candidate)
 
-        fetch_result = fetch_website(candidate)
+        fetch_result = fetch_website(candidate, timeout=4)
 
         if not fetch_result.success:
             continue

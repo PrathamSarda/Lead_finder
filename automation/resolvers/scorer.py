@@ -213,6 +213,18 @@ def score_search_result(
     if joined_tokens and joined_tokens in normalized_hostname:
         score += 25
 
+    raw_tokens = re.findall(r"[a-z0-9]+", company_name.lower())
+    joined_raw = "".join(raw_tokens)
+    if joined_raw and joined_raw in normalized_hostname:
+        score += 30
+
+    tld = hostname.split(".")[-1]
+    foreign_cctlds = {
+        "jo", "ru", "cn", "in", "pk", "ir", "by", "vn", "br", "ng", "za", "tr", "ua", "kz", "sa", "eg"
+    }
+    if tld in foreign_cctlds:
+        score -= 50
+
     if hostname_matches == len(tokens):
         score += 20
 

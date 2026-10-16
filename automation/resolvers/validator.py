@@ -170,14 +170,50 @@ def validate_company_homepage(
         | heading_matches
     )
 
+    parsed_candidate = urlparse(url)
+    candidate_host = parsed_candidate.netloc.lower()
+    candidate_tld = candidate_host.split(".")[-1]
+    foreign_cctlds = {
+        "jo", "ru", "cn", "in", "pk", "ir", "by", "vn", "br", "ng", "za", "tr", "ua", "kz", "sa", "eg"
+    }
+    if candidate_tld in foreign_cctlds:
+        return False
+
     if len(company_tokens) == 1:
         token = company_tokens[0]
-
-        return (
+        has_ownership_signal = (
             token in hostname_text
             or token in normalized_title
             or token in normalized_headings
         )
+        if not has_ownership_signal:
+            return False
+
+        name_without_suffix = [
+            t
+            for t in re.findall(r"[a-z0-9]+", company_name.lower())
+            if t not in LEGAL_SUFFIXES and len(t) >= 2
+        ]
+        if token in hostname_text and name_without_suffix and all(
+            t in normalized_title or t in normalized_headings
+            for t in name_without_suffix
+        ):
+            return True
+
+        raw_company_tokens = re.findall(r"[a-z0-9]+", company_name.lower())
+        exact_host_match = all(t in hostname_text for t in raw_company_tokens)
+        if exact_host_match:
+            return True
+
+        location_text = _normalize_text(location)
+        if location_text:
+            location_tokens = [t for t in location_text.split() if len(t) >= 2]
+            loc_in_page = any(lt in normalized_page_text for lt in location_tokens)
+            if loc_in_page:
+                return True
+            return False
+
+        return True
 
     # Strong official-domain signal.
     if len(hostname_matches) >= 2:

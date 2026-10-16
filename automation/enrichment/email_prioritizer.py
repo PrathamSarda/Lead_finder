@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 from automation.models.email_priority_result import (
     EmailPriorityResult,
 )
+from automation.verification.directory_registry import is_directory_domain
 
 
 FREE_EMAIL_DOMAINS = {
@@ -159,6 +160,9 @@ def _score_email(
         local_part in REJECTED_LOCAL_PARTS
         or compact_local_part in REJECTED_LOCAL_PARTS
     ):
+        return -1_000
+
+    if is_directory_domain(domain):
         return -1_000
 
     score = 0

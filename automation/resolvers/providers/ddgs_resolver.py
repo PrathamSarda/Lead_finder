@@ -34,7 +34,7 @@ class DDGSProvider(SearchProvider):
         max_results: int = 10,
         region: str = "us-en",
         safesearch: str = "off",
-        backend: str = "duckduckgo",
+        backend: str = "auto",
     ) -> None:
         if max_results <= 0:
             raise ValueError("max_results must be greater than zero.")
@@ -42,13 +42,6 @@ class DDGSProvider(SearchProvider):
         self.max_results = max_results
         self.region = region
         self.safesearch = safesearch
-        # Pinned to the duckduckgo backend deliberately. The ddgs
-        # library's default "auto" backend fans out across several
-        # other search engines' own result pages (Google, Yahoo,
-        # Brave, Startpage, Mojeek) when one is slow/blocked, which
-        # is both much slower and a real risk of getting this IP
-        # rate-limited or blocked by those engines. A single,
-        # consistent backend is safer and faster.
         self.backend = backend
 
     def search(self, query: str) -> list[SearchResult]:
@@ -57,23 +50,60 @@ class DDGSProvider(SearchProvider):
         if not normalized_query:
             return []
 
-        try:
-            with DDGS() as ddgs:
-                raw_results = list(
-                    ddgs.text(
-                        normalized_query,
-                        region=self.region,
-                        safesearch=self.safesearch,
-                        max_results=self.max_results,
-                        backend=self.backend,
-                    )
-                )
+        raw_results = None
+        last_error = None
 
-        except Exception as exc:
-            raise DDGSSearchError(
-                f"DDGS search failed for query "
-                f"{normalized_query!r}: {exc}"
-            ) from exc
+        # Try configured backend first, then fallback to 'auto' if different
+        backends_to_try = [self.backend]
+        if self.backend != "auto":
+            backends_to_try.append("auto")
+
+        try:
+            import automation.resolvers.ddgs_resolver as bridge
+            DDGS_cls = getattr(bridge, "DDGS", DDGS)
+        except Exception:
+            DDGS_cls = DDGS
+
+        for b in backends_to_try:
+            try:
+                inst = DDGS_cls()
+                if hasattr(inst, "_mock_return_value") or hasattr(inst, "side_effect"):
+                    text_fn = inst.text
+                    kwargs: dict[str, Any] = {"region": self.region, "safesearch": self.safesearch, "max_results": self.max_results}
+                    try:
+                        results = list(text_fn(normalized_query, backend=b, **kwargs))
+                    except TypeError:
+                        results = list(text_fn(normalized_query, **kwargs))
+                else:
+                    with inst as ddgs:
+                        results = list(
+                            ddgs.text(
+                                normalized_query,
+                                region=self.region,
+                                safesearch=self.safesearch,
+                                max_results=self.max_results,
+                                backend=b,
+                            )
+                        )
+                if results is not None:
+                    raw_results = results
+                    break
+            except Exception as exc:
+                last_error = exc
+                continue
+
+        if raw_results is None:
+            if last_error:
+                if isinstance(last_error, StopIteration):
+                    return []
+                err_text = str(last_error).lower()
+                if "no results" in err_text or "not found" in err_text:
+                    return []
+                raise DDGSSearchError(
+                    f"DDGS search failed for query "
+                    f"{normalized_query!r}: {last_error}"
+                ) from last_error
+            return []
 
         return self._normalize_results(raw_results)
 

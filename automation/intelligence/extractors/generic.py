@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from automation.intelligence.extractors.base import BaseExtractor
 from automation.intelligence.models import (
@@ -9,7 +9,6 @@ from automation.intelligence.models import (
     CompanyEvidence,
     CompanyInput,
 )
-from backend.app.models import company
 
 
 class GenericExtractor(BaseExtractor):
@@ -19,6 +18,13 @@ class GenericExtractor(BaseExtractor):
     This extractor acts as the fallback for results that do not belong to
     specialized sources such as LinkedIn, Indeed, Glassdoor, or Clutch.
     """
+    SEARCH_ENGINE_DOMAINS = {
+        "google.com",
+        "bing.com",
+        "yahoo.com",
+        "duckduckgo.com",
+        "search.brave.com",
+    }
 
     EXCLUDED_DOMAINS = {
         "linkedin.com",
@@ -146,7 +152,15 @@ class GenericExtractor(BaseExtractor):
         for collected_result in self.supported_results(collected_results):
             search_result = collected_result.result
 
-            canonical_url = self._canonical_url(search_result.url)
+            resolved_url = self._resolve_result_url(
+                search_result.url,
+                getattr(search_result, "destination", None),
+            )
+
+            if not resolved_url:
+                continue
+
+            canonical_url = self._canonical_url(resolved_url)
 
             if not canonical_url:
                 continue
@@ -176,32 +190,31 @@ class GenericExtractor(BaseExtractor):
                 search_result.snippet,
                 company,
             )
-            website = self._website_from_url(
-    search_result.url,
-)
 
-            if website and self._is_blocked_domain(website):
+            if self._is_blocked_domain(resolved_url):
                 continue
 
+            website = self._website_from_url(resolved_url)
+
             evidence.append(
-    self.build_evidence(
-        title=search_result.title,
-        url=search_result.url,
-        snippet=search_result.snippet,
-        company_name=company_name,
-        website=self._website_from_url(search_result.url),
-        email=email,
-        phone=phone,
-        location=location,
-        confidence=self._calculate_confidence(
-            email=email,
-            phone=phone,
-            company_name=company_name,
-            expected_company_name=company.name,
-            website=self._website_from_url(search_result.url),
-        ),
-    )
-)
+                self.build_evidence(
+                    title=search_result.title,
+                    url=resolved_url,
+                    snippet=search_result.snippet,
+                    company_name=company_name,
+                    website=website,
+                    email=email,
+                    phone=phone,
+                    location=location,
+                    confidence=self._calculate_confidence(
+                        email=email,
+                        phone=phone,
+                        company_name=company_name,
+                        expected_company_name=company.name,
+                        website=website,
+                    ),
+                )
+            )
         
         return evidence
  
@@ -269,6 +282,87 @@ class GenericExtractor(BaseExtractor):
 
         return hostname
 
+
+    @classmethod
+    def _resolve_result_url(
+        cls,
+        url: str,
+        destination: str | None = None,
+    ) -> str | None:
+        """
+        Resolve search-engine redirect URLs to their actual destination.
+
+        Zenserp may return Google redirect URLs such as:
+        https://www.google.com/goto?url=https%3A%2F%2Fexample.com
+
+        The destination field may also contain a real URL, but sometimes
+        contains plain text such as "300+ followers", so it must be
+        validated before use.
+        """
+        if not url:
+            return None
+
+        try:
+            parsed = urlparse(url.strip())
+        except ValueError:
+            return None
+
+        hostname = cls._normalize_hostname(parsed.hostname)
+
+        # Google/Bing/etc. redirect URL.
+        if hostname and cls._is_search_engine_domain(hostname):
+            query = parse_qs(parsed.query)
+
+            for key in ("url", "u", "target", "dest", "destination"):
+                values = query.get(key)
+
+                if not values:
+                    continue
+
+                candidate = unquote(values[0]).strip()
+
+                if cls._is_http_url(candidate):
+                    return candidate
+
+            # If the redirect URL does not contain a usable target,
+            # try Zenserp's destination field.
+            if destination and cls._is_http_url(destination.strip()):
+                return destination.strip()
+
+            return None
+
+        # Normal direct URL.
+        if cls._is_http_url(url):
+            return url.strip()
+
+        # Last fallback: use destination only when it is actually a URL.
+        if destination and cls._is_http_url(destination.strip()):
+            return destination.strip()
+
+        return None
+
+    @classmethod
+    def _is_search_engine_domain(
+        cls,
+        hostname: str,
+    ) -> bool:
+        return any(
+            hostname == domain
+            or hostname.endswith(f".{domain}")
+            for domain in cls.SEARCH_ENGINE_DOMAINS
+        )
+
+    @staticmethod
+    def _is_http_url(url: str) -> bool:
+        try:
+            parsed = urlparse(url)
+        except ValueError:
+            return False
+
+        return parsed.scheme.lower() in {"http", "https"} and bool(
+            parsed.hostname
+        )
+
     @classmethod
     def _website_from_url(
         cls,
@@ -287,13 +381,32 @@ class GenericExtractor(BaseExtractor):
         if not hostname:
             return None
 
+        if cls._is_search_engine_domain(hostname):
+            return None
+
+        if cls._is_excluded_domain(hostname):
+            return None
+
+        from automation.verification.directory_registry import (
+            is_directory_domain,
+            is_civic_or_gov_domain,
+            is_foreign_cctld,
+        )
+
+        if (
+            is_directory_domain(hostname)
+            or is_civic_or_gov_domain(hostname)
+            or is_foreign_cctld(hostname)
+        ):
+            return None
+
         scheme = parsed.scheme.lower()
 
         if scheme not in {"http", "https"}:
             scheme = "https"
 
         return f"{scheme}://{hostname}"
-
+    
     @classmethod
     def _canonical_url(
         cls,
@@ -451,7 +564,20 @@ class GenericExtractor(BaseExtractor):
 
         website = website.lower()
 
-        return any(
+        if any(
             blocked in website
             for blocked in cls.BLOCKED_DOMAINS
+        ):
+            return True
+
+        from automation.verification.directory_registry import (
+            is_directory_domain,
+            is_civic_or_gov_domain,
+            is_foreign_cctld,
+        )
+
+        return (
+            is_directory_domain(website)
+            or is_civic_or_gov_domain(website)
+            or is_foreign_cctld(website)
         )

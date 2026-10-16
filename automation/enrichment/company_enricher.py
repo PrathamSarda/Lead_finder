@@ -56,11 +56,15 @@ def enrich_company(
     result.fetched_pages.append(homepage_url)
 
     result.emails = extract_emails(homepage_html)
+    for email in result.emails:
+        result.email_sources.setdefault(email, homepage_url)
 
     result.phone_numbers = extract_phone_numbers(
         homepage_html,
         region=region,
     )
+    for phone in result.phone_numbers:
+        result.phone_sources.setdefault(phone, homepage_url)
 
     result.contact_pages = find_contact_pages(
         html=homepage_html,
@@ -80,11 +84,15 @@ def enrich_company(
         result.fetched_pages.append(resolved_page_url)
 
         page_emails = extract_emails(page_html)
+        for email in page_emails:
+            result.email_sources.setdefault(email, resolved_page_url)
 
         page_phone_numbers = extract_phone_numbers(
             page_html,
             region=region,
         )
+        for phone in page_phone_numbers:
+            result.phone_sources.setdefault(phone, resolved_page_url)
 
         result.emails = _merge_unique(
             result.emails,

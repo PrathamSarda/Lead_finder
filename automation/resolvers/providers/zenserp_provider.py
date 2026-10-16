@@ -102,9 +102,6 @@ class ZenserpProvider(SearchProvider):
         self.country_code = country_code.strip().lower()
         self.language = language.strip().lower()
         self.session = session or requests.Session()
-        print("Session:", type(self.session))
-        print("Verify:", self.session.verify)
-        print("Endpoint:", self.endpoint)
 
         if not self.endpoint:
             raise ValueError(
@@ -134,8 +131,6 @@ class ZenserpProvider(SearchProvider):
         payload = self._request_search(
             normalized_query
         )
-        print("\nZenserp payload type:", type(payload))
-        print("Zenserp payload keys:", list(payload.keys()))
 
         organic_results = payload.get("organic")
 
@@ -153,16 +148,7 @@ class ZenserpProvider(SearchProvider):
 
         if not isinstance(organic_results, list):
             organic_results = []
-        print("Organic type:", type(organic_results))
-        print(
-            "Organic count:",
-            len(organic_results) if isinstance(organic_results, list) else "not a list",
-        )
 
-        print(
-            "Payload preview:",
-            str(payload)[:2000],
-        )
         return self._parse_organic_results(
             payload=payload,
         )
@@ -195,22 +181,13 @@ class ZenserpProvider(SearchProvider):
         if self.language:
             params["hl"] = self.language
 
-        print("Request URL:", self.endpoint)
-
-        safe_headers = {
-            **headers,
-            "apikey": "***",
-        }
-
-        print("Headers:", safe_headers)
-        print("Params:", params)
         try:
-            response = requests.get(
-    self.endpoint,
-    headers=headers,
-    params=params,
-    timeout=20,
-)
+            response = self.session.get(
+                self.endpoint,
+                headers=headers,
+                params=params,
+                timeout=self.timeout,
+            )
 
         except requests.Timeout as exc:
             raise SearchProviderError(
@@ -234,11 +211,14 @@ class ZenserpProvider(SearchProvider):
             401,
             403,
         }:
-            print("Status Code:", response.status_code)
-            print("Response Body:", response.text)
+            error_detail = response.text
+            try:
+                err_json = response.json()
+                error_detail = err_json.get("error") or err_json.get("message") or str(err_json)
+            except Exception:
+                pass
             raise SearchProviderError(
-                "Zenserp authentication failed. Check the "
-                "ZENSERP_API_KEY value and account access."
+                f"Zenserp request rejected (HTTP {response.status_code}): {error_detail}"
             )
 
         if response.status_code == 429:
@@ -311,6 +291,10 @@ class ZenserpProvider(SearchProvider):
             if not url:
                 continue
 
+            destination = self._safe_string(
+                item.get("destination")
+            )
+
             normalized_identity = url.strip().lower()
 
             if normalized_identity in seen_urls:
@@ -336,11 +320,11 @@ class ZenserpProvider(SearchProvider):
                     snippet=snippet,
                     provider=self.name,
                     position=position,
+                    destination=destination or None,
                 )
             )
 
         return normalized_results
-
     @staticmethod
     def _extract_url(
         item: dict[str, Any],
@@ -446,12 +430,15 @@ class ZenserpProvider(SearchProvider):
         Detect API-level errors returned inside a successful HTTP response.
         """
 
-        error_value = payload.get("error")
+        error_value = payload.get("error") or payload.get("errors")
 
         if not error_value:
             return
 
-        if isinstance(error_value, str):
+        if isinstance(error_value, list):
+            message = "; ".join(str(item) for item in error_value)
+
+        elif isinstance(error_value, str):
             message = error_value.strip()
 
         elif isinstance(error_value, dict):

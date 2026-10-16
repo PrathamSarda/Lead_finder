@@ -144,6 +144,13 @@ def is_excluded_domain(hostname: str) -> bool:
     )
 
 
+from automation.verification.directory_registry import (
+    is_directory_domain as registry_is_directory,
+    is_civic_or_gov_domain,
+    is_foreign_cctld,
+)
+
+
 def evaluate_candidate_url(
     url: str,
 ) -> CandidateFilterResult:
@@ -195,6 +202,24 @@ def evaluate_candidate_url(
         return CandidateFilterResult(
             accepted=False,
             reason="directory_path_pattern",
+        )
+
+    if registry_is_directory(hostname):
+        return CandidateFilterResult(
+            accepted=False,
+            reason="excluded_domain",
+        )
+
+    if is_civic_or_gov_domain(hostname):
+        return CandidateFilterResult(
+            accepted=False,
+            reason="civic_domain",
+        )
+
+    if is_foreign_cctld(hostname):
+        return CandidateFilterResult(
+            accepted=False,
+            reason="foreign_cctld",
         )
 
     return CandidateFilterResult(

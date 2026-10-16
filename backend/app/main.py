@@ -6,9 +6,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1.api import api_router
-from app.core.config import settings
-from app.scheduler.scheduler import start_scheduler, shutdown_scheduler
+try:
+    from backend.app.api.v1.api import api_router
+    from backend.app.core.config import settings
+    from backend.app.scheduler.scheduler import start_scheduler, shutdown_scheduler
+except ImportError:
+    from app.api.v1.api import api_router
+    from app.core.config import settings
+    from app.scheduler.scheduler import start_scheduler, shutdown_scheduler
 
 
 @asynccontextmanager

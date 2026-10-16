@@ -98,19 +98,29 @@ def calculate_domain_similarity(
     Return a similarity value between 0.0 and 1.0.
     """
 
+    raw_company = "".join(_tokenize(company_name))
     normalized_company = normalize_company_name(company_name)
     normalized_domain = extract_domain_name(url)
 
     if not normalized_company or not normalized_domain:
         return 0.0
 
-    if normalized_company == normalized_domain:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    tld = host.split(".")[-1]
+    foreign_cctlds = {
+        "jo", "ru", "cn", "in", "pk", "ir", "by", "vn", "br", "ng", "za", "tr", "ua", "kz", "sa", "eg"
+    }
+    if tld in foreign_cctlds:
+        return 0.10
+
+    if raw_company == normalized_domain or normalized_company == normalized_domain:
         return 1.0
 
-    if normalized_company in normalized_domain:
+    if raw_company in normalized_domain or normalized_company in normalized_domain:
         return 0.95
 
-    if normalized_domain in normalized_company:
+    if normalized_domain in raw_company or normalized_domain in normalized_company:
         domain_coverage = (
             len(normalized_domain)
             / len(normalized_company)
@@ -120,11 +130,9 @@ def calculate_domain_similarity(
         if domain_coverage >= 0.55:
             return max(0.80, domain_coverage)
 
-    return SequenceMatcher(
-        None,
-        normalized_company,
-        normalized_domain,
-    ).ratio()
+    sim1 = SequenceMatcher(None, normalized_company, normalized_domain).ratio()
+    sim2 = SequenceMatcher(None, raw_company, normalized_domain).ratio()
+    return max(sim1, sim2)
 
 
 def calculate_domain_bonus(

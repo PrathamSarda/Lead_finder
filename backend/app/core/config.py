@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     DEBUG: bool = True
     API_V1_PREFIX: str = "/api/v1"
+    # LLM
+    GEMINI_API_KEY: str = ""
 
     # Security
     SECRET_KEY: str = "change-this-to-a-long-random-string"

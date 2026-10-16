@@ -25,3 +25,7 @@ class EnrichmentResult:
     failed_pages: list[str] = field(default_factory=list)
 
     error: Optional[str] = None
+
+    email_sources: dict[str, str] = field(default_factory=dict)
+
+    phone_sources: dict[str, str] = field(default_factory=dict)

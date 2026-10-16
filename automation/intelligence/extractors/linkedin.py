@@ -89,13 +89,27 @@ class LinkedInExtractor(BaseExtractor):
         if not snippet:
             return None
 
+        # Look for explicit Website: or External link: labels or direct http URLs
+        explicit_match = re.search(
+            r"(?:Website|External link|Site):\s*(https?://[^\s;,]+|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}[^\s;,]*)",
+            snippet,
+            re.IGNORECASE,
+        )
+        if explicit_match:
+            url = explicit_match.group(1).rstrip(".,;)")
+            if not url.startswith(("http://", "https://")):
+                url = f"https://{url}"
+            return url
+
         match = re.search(
-            r"https?://[^\s;]+",
+            r"https?://[^\s;,]+",
             snippet,
             re.IGNORECASE,
         )
 
         if match:
-            return match.group(0).rstrip(".,;)")
+            url = match.group(0).rstrip(".,;)")
+            if "linkedin.com" not in url.lower():
+                return url
 
         return None

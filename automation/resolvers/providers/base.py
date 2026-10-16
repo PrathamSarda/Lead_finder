@@ -11,6 +11,7 @@ class SearchResult:
     snippet: str
     provider: str
     position: int
+    destination: str | None = None
 
 
 class SearchProviderError(RuntimeError):

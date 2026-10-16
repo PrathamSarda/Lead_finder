@@ -6,10 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 import random
 
-from automation.sources.fmcsa.parser import load_qualified_companies
+from automation.models.search_filters import SearchFilters
+from automation.sources.fmcsa.connector import FMCSAConnector
 from automation.intelligence.models import CompanyInput
 from automation.intelligence.company_service import CompanyService
-from automation.intelligence.models import CompanyInput
 
 
 @dataclass(slots=True)
@@ -17,20 +17,6 @@ class TestCompany:
     name: str
     city: str | None = None
     state: str | None = None
-
-
-qualified_companies = load_qualified_companies(
-    limit=20,
-)
-
-qualified_companies = load_qualified_companies()
-
-random.seed(42)
-
-qualified_companies = random.sample(
-    qualified_companies,
-    20,
-)
 
 
 OUTPUT_FILE = Path(
@@ -42,6 +28,32 @@ def safe_value(value: str | None) -> str:
     return value or ""
 
 
+def load_sample_companies() -> list[TestCompany]:
+    try:
+        connector = FMCSAConnector()
+        leads = connector.search(SearchFilters(max_results=8))
+        companies: list[TestCompany] = []
+        for lead in leads:
+            city, state = None, None
+            if lead.location and "," in lead.location:
+                city, state = [p.strip() for p in lead.location.split(",", 1)]
+            elif lead.location:
+                city = lead.location.strip()
+            companies.append(TestCompany(name=lead.company_name, city=city, state=state))
+        if companies:
+            return companies
+    except Exception as exc:
+        print(f"FMCSA fallback due to: {exc}")
+
+    return [
+        TestCompany(name="Cherokee Culvert Company Inc", city="Macon", state="GA"),
+        TestCompany(name="BioLab Inc", city="Lawrenceville", state="GA"),
+        TestCompany(name="CWT Farms International Inc", city="Gainesville", state="GA"),
+        TestCompany(name="Boise Delivery & Transfer Inc", city="Boise", state="ID"),
+        TestCompany(name="Brockman Trucking Inc", city="Afton", state="MN"),
+    ]
+
+
 def main() -> None:
     service = CompanyService()
 
@@ -50,6 +62,7 @@ def main() -> None:
         exist_ok=True,
     )
 
+    companies = load_sample_companies()
     rows: list[dict[str, object]] = []
 
     print("=" * 100)
@@ -59,12 +72,12 @@ def main() -> None:
     total_started = time.perf_counter()
 
     for index, test_company in enumerate(
-        COMPANIES,
+        companies,
         start=1,
     ):
         print()
         print(
-            f"[{index}/{len(COMPANIES)}] "
+            f"[{index}/{len(companies)}] "
             f"{test_company.name}"
         )
         print("-" * 100)

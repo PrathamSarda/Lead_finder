@@ -25,7 +25,7 @@ class ResultFilter:
     5. Duplicate URLs
     """
 
-    DEFAULT_MINIMUM_SCORE = 0.55
+    DEFAULT_MINIMUM_SCORE = 0.35
 
     LEGAL_SUFFIXES = {
     "inc",
@@ -45,10 +45,10 @@ class ResultFilter:
 }
 
     SOURCE_SCORES: dict[str, float] = {
-        "linkedin": 1.00,
-        "fmcsa": 0.95,
-        "website": 0.95,
-        "official_website": 0.95,
+        "website": 1.00,
+        "official_website": 1.00,
+        "linkedin": 0.95,
+        "fmcsa": 0.90,
         "clutch": 0.85,
         "glassdoor": 0.80,
         "indeed": 0.70,
@@ -161,14 +161,16 @@ class ResultFilter:
 
         for index, collected_result in enumerate(results):
             score = self.score(company, collected_result)
-            name_similarity = self._company_similarity(
-            company_name,
-            self._get_result_value(
-                collected_result,
-                "title",
-            ),
-        )   
-            if name_similarity < 0.70:
+            title = self._get_result_value(collected_result, "title")
+            snippet = self._get_result_value(collected_result, "snippet")
+            url = self._get_result_value(collected_result, "url")
+            combined_text = f"{title} {snippet} {url}".strip()
+
+            title_sim = self._company_similarity(company_name, title)
+            text_sim = self._company_similarity(company_name, combined_text)
+            best_sim = max(title_sim, text_sim)
+
+            if best_sim < 0.35:
                 continue
 
             if score < self.minimum_score:
@@ -520,10 +522,12 @@ class ResultFilter:
         penalty = 0.0
 
         if matched_job_terms:
-            if source in {"indeed", "glassdoor"}:
-                penalty += 0.22
+            if source in {"website", "official_website"}:
+                penalty += 0.05
+            elif source in {"indeed", "glassdoor"}:
+                penalty += 0.20
             else:
-                penalty += 0.32
+                penalty += 0.25
 
         if matched_other_terms:
             penalty += min(

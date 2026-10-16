@@ -139,18 +139,15 @@ class WebsiteResolver:
                 "greater than zero."
             )
 
-        self.providers = (
-            providers
-            if providers is not None
-            else [
-                # Free provider first. Zenserp is paid, so it only
-                # runs as a fallback when DDGS fails to produce a
-                # validated result. Do not reorder this without
-                # updating the cost assumptions in the pipeline docs.
-                DDGSProvider(),
-                ZenserpProvider(),
-            ]
-        )
+        if providers is not None:
+            self.providers = providers
+        else:
+            default_providers: list[SearchProvider] = [DDGSProvider()]
+            try:
+                default_providers.append(ZenserpProvider())
+            except Exception:
+                pass
+            self.providers = default_providers
 
         self.acceptance_threshold = acceptance_threshold
         self.request_timeout = request_timeout
@@ -227,6 +224,8 @@ class WebsiteResolver:
 
         total_attempted_candidates = 0
         provider_failures: list[str] = []
+        rejected_candidates: list[str] = []
+        validated_candidates: list[str] = []
 
         for provider in self.providers:
             provider_name = self._provider_name(provider)
@@ -277,6 +276,7 @@ class WebsiteResolver:
                 company_name=normalized_company_name,
                 location=normalized_location,
                 search_results=search_results,
+                rejected_candidates=rejected_candidates,
             )
 
             if not ranked_candidates:
@@ -292,6 +292,8 @@ class WebsiteResolver:
                 company_name=normalized_company_name,
                 location=normalized_location,
                 candidates=ranked_candidates,
+                validated_candidates=validated_candidates,
+                rejected_candidates=rejected_candidates,
             )
 
             total_attempted_candidates += (
@@ -320,6 +322,8 @@ class WebsiteResolver:
                     attempted_candidates=(
                         total_attempted_candidates
                     ),
+                    rejected_candidates=rejected_candidates,
+                    validated_candidates=validated_candidates,
                 )
 
         if provider_failures and (
@@ -333,6 +337,8 @@ class WebsiteResolver:
             found=False,
             reason=reason,
             attempted_candidates=total_attempted_candidates,
+            rejected_candidates=rejected_candidates,
+            validated_candidates=validated_candidates,
         )
 
     def search_all(
@@ -414,17 +420,12 @@ class WebsiteResolver:
 
         results: list[SearchResult] = []
         seen_urls: set[str] = set()
+        last_error = None
 
         for query in queries:
             if len(results) >= self.max_results_per_provider:
                 break
 
-            # Each query variant costs a real, often paid, API call.
-            # If an earlier (more specific) variant already returned
-            # a healthy set of results, broader variants are unlikely
-            # to add a better candidate and are not worth the extra
-            # request. Only fall through to the next, broader query
-            # when the current one came back thin or empty.
             if (
                 results
                 and len(results)
@@ -447,13 +448,24 @@ class WebsiteResolver:
 
             try:
                 query_results = provider.search(query)
-            except SearchProviderError:
-                raise
             except Exception as exc:
-                raise SearchProviderError(
-                    f"{self._provider_name(provider)} search failed "
-                    f"for query {query!r}: {exc}"
-                ) from exc
+                last_error = exc
+                err_lower = str(exc).lower()
+                if any(k in err_lower for k in ("not enough requests", "quota", "rate limit", "403", "429")):
+                    logger.warning(
+                        "%s quota reached or request rejected, stopping further queries: %s",
+                        self._provider_name(provider),
+                        exc,
+                    )
+                    break
+
+                logger.warning(
+                    "%s query %r failed: %s",
+                    self._provider_name(provider),
+                    query,
+                    exc,
+                )
+                continue
 
             for result in query_results:
                 if len(results) >= self.max_results_per_provider:
@@ -481,6 +493,7 @@ class WebsiteResolver:
         company_name: str,
         location: str | None,
         search_results: Iterable[SearchResult],
+        rejected_candidates: list[str] | None = None,
     ) -> list[RankedCandidate]:
         """
         Filter, score, and rank raw search results.
@@ -519,6 +532,8 @@ class WebsiteResolver:
                     result.url,
                     filter_result.reason,
                 )
+                if rejected_candidates is not None:
+                    rejected_candidates.append(result.url)
                 continue
 
             search_score = score_search_result(
@@ -535,6 +550,8 @@ class WebsiteResolver:
                     homepage_url,
                     search_score,
                 )
+                if rejected_candidates is not None:
+                    rejected_candidates.append(homepage_url)
                 continue
 
             domain_bonus = calculate_domain_bonus(
@@ -568,6 +585,8 @@ class WebsiteResolver:
         company_name: str,
         location: str | None,
         candidates: list[RankedCandidate],
+        validated_candidates: list[str] | None = None,
+        rejected_candidates: list[str] | None = None,
     ) -> ResolutionResult:
         """
         Fetch and validate the highest-ranked candidates.
@@ -597,6 +616,10 @@ class WebsiteResolver:
             )
 
             if fetched_page is None:
+                if rejected_candidates is not None:
+                    rejected_candidates.append(
+                        candidate.normalized_url
+                    )
                 continue
 
             final_url, html = fetched_page
@@ -611,6 +634,8 @@ class WebsiteResolver:
                     final_url,
                     filter_result.reason,
                 )
+                if rejected_candidates is not None:
+                    rejected_candidates.append(final_url)
                 continue
 
             is_valid = validate_company_homepage(
@@ -625,11 +650,16 @@ class WebsiteResolver:
                     "Homepage validation failed for %s",
                     final_url,
                 )
+                if rejected_candidates is not None:
+                    rejected_candidates.append(final_url)
                 continue
 
             resolved_url = self._to_homepage_url(
                 final_url
             )
+
+            if validated_candidates is not None:
+                validated_candidates.append(resolved_url)
 
             return ResolutionResult(
                 found=True,
@@ -642,12 +672,16 @@ class WebsiteResolver:
                 search_result=candidate.search_result,
                 reason=None,
                 attempted_candidates=attempted_candidates,
+                rejected_candidates=rejected_candidates or [],
+                validated_candidates=validated_candidates or [resolved_url],
             )
 
         return ResolutionResult(
             found=False,
             reason="provider_candidates_failed_validation",
             attempted_candidates=attempted_candidates,
+            rejected_candidates=rejected_candidates or [],
+            validated_candidates=validated_candidates or [],
         )
 
     def _select_validation_candidates(
