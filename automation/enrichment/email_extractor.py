@@ -64,7 +64,24 @@ INVALID_PREFIXES = (
     "bootstrap",
     "webpack",
     "npm",
+    "filler",
+    "dummy",
+    "test",
+    "testing",
+    "example",
+    "sample",
+    "noreply",
+    "no-reply",
 )
+
+INVALID_EMAIL_DOMAINS = {
+    "godaddy.com",
+    "wix.com",
+    "squarespace.com",
+    "wordpress.com",
+    "namecheap.com",
+    "cloudflare.com",
+}
 
 
 def _extract_regex_emails(text: str) -> list[str]:
@@ -108,6 +125,11 @@ def _filter_invalid(emails: list[str]) -> list[str]:
 
         if any(email.endswith(ext) for ext in INVALID_EXTENSIONS):
             continue
+
+        if "@" in email:
+            domain = email.split("@", 1)[1]
+            if domain in INVALID_EMAIL_DOMAINS:
+                continue
 
         local_part = email.split("@")[0]
         if any(local_part.startswith(prefix) for prefix in INVALID_PREFIXES):

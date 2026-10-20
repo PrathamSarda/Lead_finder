@@ -30,40 +30,7 @@ GENERIC_COMPANY_WORDS = {
     "industry",
 }
 
-EXCLUDED_DOMAINS = {
-    "bbb.org",
-    "bloomberg.com",
-    "buzzfile.com",
-    "chamberofcommerce.com",
-    "crunchbase.com",
-    "datastical.com",
-    "dnb.com",
-    "facebook.com",
-    "instagram.com",
-    "linkedin.com",
-    "loadwrap.com",
-    "local.yahoo.com",
-    "manta.com",
-    "mapquest.com",
-    "opencorporates.com",
-    "quicktransportsolutions.com",
-    "twitter.com",
-    "x.com",
-    "yellowpages.com",
-    "yelp.com",
-    "youtube.com",
-    "zoominfo.com",
-        "arktms.com",
-    "carrier411.com",
-    "findtruckservice.com",
-    "freightconnect.com",
-    "safer.fmcsa.dot.gov",
-    "thetruckersreport.com",
-    "truckcarrierhub.com",
-    "truckcompaniesin.com",
-    "truckingdatabase.com",
-    "usdotlookup.com",
-}
+from automation.verification.directory_registry import EXCLUDED_DOMAINS
 
 DIRECTORY_PATH_WORDS = {
     "business",
@@ -228,6 +195,21 @@ def score_search_result(
     if hostname_matches == len(tokens):
         score += 20
 
+    # Exact title match bonus: all substantive company tokens in title
+    if tokens and title_matches == len(tokens):
+        score += 35
+
+    # Initialism / acronym match: e.g. hostname starts with 'aic' for 'American Industrial Contracting'
+    company_initials = "".join(t[0] for t in tokens if len(t) >= 2)
+    if len(company_initials) >= 2 and normalized_hostname.startswith(company_initials):
+        score += 30
+
+    # Substantive keyword conflict penalty: e.g. company name has 'contracting' but domain has 'construction'
+    if "contracting" in tokens and "construction" in normalized_hostname and "contracting" not in normalized_hostname:
+        score -= 45
+    if "construction" in tokens and "contracting" in normalized_hostname and "construction" not in normalized_hostname:
+        score -= 45
+
     if normalized_location:
         location_tokens = [
             token
@@ -261,5 +243,15 @@ def score_search_result(
 
     if "official" in normalized_title:
         score += 5
+
+    # TLD preference: US businesses predominantly use .com
+    tld_preference = {
+        "com": 10,
+        "net": 3,
+        "org": 2,
+        "us": 4,
+        "biz": 1,
+    }
+    score += tld_preference.get(tld, 0)
 
     return score

@@ -70,11 +70,40 @@ def build_search_queries(
     # Query 2: Clean branded name with quotes
     queries.append(f'"{cleaned}" official website')
 
-    # Query 3: Exact raw company name if different from cleaned
+    # Query 3: Contact and phone page search - finds small businesses that only show up in contact context
+    if location_str:
+        queries.append(f'"{cleaned}" {location_str} contact phone')
+        queries.append(f'"{cleaned}" {state} contact' if state else f'"{cleaned}" contact')
+    else:
+        queries.append(f'"{cleaned}" contact phone')
+
+    # Query 4: Exact raw company name if different from cleaned
     if cleaned.lower() != company.lower():
         if location_str:
             queries.append(f'"{company}" {location_str}')
         queries.append(company)
 
+    # Query 5: "About" page search - many small businesses appear in "about" pages
+    if location_str:
+        queries.append(f'{cleaned} {location_str} "about us"')
+
+    # Query 6: State-context search for very regional companies
+    if state:
+        queries.append(f'"{cleaned}" {state}')
+
+    # Query 7: Website field search - surfaces brand domains that don't match company name.
+    # Some directories explicitly show the company's website URL in search snippets
+    # (e.g. "Business Website Address www.acmeclay.com" or "austinsbleach.com").
+    if location_str:
+        queries.append(f'{cleaned} {location_str} website contact')
+
+    # Query 8: Narrow geographic search with quoted city and state
+    # Helps surface brand websites for small companies with non-obvious domains
+    if city and state:
+        queries.append(f'"{cleaned}" "{city}" "{state}"')
+
+    # Query 9: Direct contact search using original company name (catches edge cases)
+    queries.append(f'"{company}" contact email phone')
+
     # Preserve order while preventing duplicate queries.
-    return list(dict.fromkeys(queries))
+    return list(dict.fromkeys(queries))

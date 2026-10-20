@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import re
+import time
 from collections.abc import Iterable
 from urllib.parse import urlparse, urlunparse
 
@@ -35,6 +37,7 @@ from automation.resolvers.scorer import (
 from automation.resolvers.validator import (
     validate_company_homepage,
 )
+from automation.verification.directory_registry import normalize_domain
 
 
 logger = logging.getLogger(__name__)
@@ -75,10 +78,10 @@ class WebsiteResolver:
     def __init__(
         self,
         providers: list[SearchProvider] | None = None,
-        acceptance_threshold: int = 90,
-        request_timeout: float = 12.0,
-        max_validation_candidates: int = 8,
-        max_results_per_provider: int = 40,
+        acceptance_threshold: int = 70,  # lowered to accept more candidates
+        request_timeout: float = 7.0,
+        max_validation_candidates: int = 12,  # increased to validate more candidates
+        max_results_per_provider: int = 80,  # increased pool of raw results
         min_results_before_broader_query: int = 5,
         session: requests.Session | None = None,
     ) -> None:
@@ -226,6 +229,7 @@ class WebsiteResolver:
         provider_failures: list[str] = []
         rejected_candidates: list[str] = []
         validated_candidates: list[str] = []
+        top_candidates_meta: list[dict[str, str]] = []
 
         for provider in self.providers:
             provider_name = self._provider_name(provider)
@@ -300,6 +304,16 @@ class WebsiteResolver:
                 validation_result.attempted_candidates
             )
 
+            top_candidates_meta = [
+                {
+                    "title": c.search_result.title,
+                    "url": c.normalized_url,
+                    "snippet": c.search_result.snippet or "",
+                    "score": str(c.total_score),
+                }
+                for c in ranked_candidates[:5]
+            ]
+
             if validation_result.found:
                 logger.info(
                     "Resolved %s to %s using %s with score %s",
@@ -324,6 +338,7 @@ class WebsiteResolver:
                     ),
                     rejected_candidates=rejected_candidates,
                     validated_candidates=validated_candidates,
+                    candidate_results=top_candidates_meta,
                 )
 
         if provider_failures and (
@@ -339,6 +354,7 @@ class WebsiteResolver:
             attempted_candidates=total_attempted_candidates,
             rejected_candidates=rejected_candidates,
             validated_candidates=validated_candidates,
+            candidate_results=top_candidates_meta,
         )
 
     def search_all(
@@ -421,51 +437,86 @@ class WebsiteResolver:
         results: list[SearchResult] = []
         seen_urls: set[str] = set()
         last_error = None
+        consecutive_timeouts = 0
 
-        for query in queries:
+        # Memory cache on resolver instance across calls
+        if not hasattr(self, "_query_cache"):
+            self._query_cache: dict[tuple[str, str], list[SearchResult]] = {}
+        if not hasattr(self, "_failed_queries"):
+            self._failed_queries: set[tuple[str, str]] = set()
+
+        p_name = self._provider_name(provider)
+
+        for query_idx, query in enumerate(queries):
             if len(results) >= self.max_results_per_provider:
                 break
 
-            if (
-                results
-                and len(results)
-                >= self.min_results_before_broader_query
-            ):
-                logger.debug(
-                    "Stopping query fan-out for %s after %d "
-                    "result(s); skipping remaining broader "
-                    "query variants.",
-                    self._provider_name(provider),
-                    len(results),
-                )
-                break
-
-            logger.debug(
-                "Searching provider %s with query: %s",
-                self._provider_name(provider),
-                query,
-            )
-
-            try:
-                query_results = provider.search(query)
-            except Exception as exc:
-                last_error = exc
-                err_lower = str(exc).lower()
-                if any(k in err_lower for k in ("not enough requests", "quota", "rate limit", "403", "429")):
-                    logger.warning(
-                        "%s quota reached or request rejected, stopping further queries: %s",
-                        self._provider_name(provider),
-                        exc,
+            cache_key = (p_name, query)
+            if cache_key in self._query_cache:
+                logger.debug("Cache hit for %s query %r", p_name, query)
+                query_results = self._query_cache[cache_key]
+            elif cache_key in self._failed_queries:
+                logger.debug("Skipping known failed query for %s: %r", p_name, query)
+                continue
+            else:
+                if (
+                    results
+                    and len(results)
+                    >= self.min_results_before_broader_query
+                    and self._has_strong_candidate(results, company_name)
+                ):
+                    logger.debug(
+                        "Stopping query fan-out for %s after %d "
+                        "result(s); strong candidate found.",
+                        p_name,
+                        len(results),
                     )
                     break
 
-                logger.warning(
-                    "%s query %r failed: %s",
-                    self._provider_name(provider),
+                # Inter-query throttling: rate limit requests to prevent HTTP 429/502
+                if query_idx > 0:
+                    time.sleep(1.0)
+
+                logger.debug(
+                    "Searching provider %s with query: %s",
+                    p_name,
                     query,
-                    exc,
                 )
-                continue
+
+                try:
+                    query_results = provider.search(query)
+                    consecutive_timeouts = 0
+                    self._query_cache[cache_key] = query_results
+                except Exception as exc:
+                    last_error = exc
+                    self._failed_queries.add(cache_key)
+                    err_lower = str(exc).lower()
+                    if any(k in err_lower for k in ("not enough requests", "quota", "rate limit", "403", "429", "throttled", "auto-throttled", "502")):
+                        logger.warning(
+                            "%s quota/rate-limit reached, stopping further queries: %s",
+                            p_name,
+                            exc,
+                        )
+                        break
+
+                    if any(k in err_lower for k in ("timed out", "timeout")):
+                        consecutive_timeouts += 1
+                        if consecutive_timeouts >= 2:
+                            logger.warning(
+                                "%s timed out consecutively (%d times), stopping further queries: %s",
+                                p_name,
+                                consecutive_timeouts,
+                                exc,
+                            )
+                            break
+
+                    logger.warning(
+                        "%s query %r failed: %s",
+                        self._provider_name(provider),
+                        query,
+                        exc,
+                    )
+                    continue
 
             for result in query_results:
                 if len(results) >= self.max_results_per_provider:
@@ -485,6 +536,38 @@ class WebsiteResolver:
 
                 seen_urls.add(identity)
                 results.append(result)
+
+        # Snippet URL mining: extract plain domain/URL mentions from snippet text of directory
+        # results. Many directory pages (e.g. mckeesrocks.org) embed the actual company website
+        # inside their snippet: "Business Website Address www.acmeclay.com". We inject these
+        # as synthetic candidates so they enter scoring + validation even though the directory
+        # result itself would be rejected by candidate_filter.
+        snippet_injected: list[SearchResult] = []
+        for result in results:
+            snippet_urls = self._extract_urls_from_snippet(
+                result.snippet, result.title
+            )
+            for surl in snippet_urls:
+                norm = self._normalize_result_url(surl)
+                if not norm:
+                    continue
+                ident = norm.lower()
+                if ident in seen_urls:
+                    continue
+                seen_urls.add(ident)
+                # Synthetic result inherits the original snippet for scoring context
+                snippet_injected.append(
+                    SearchResult(
+                        title=result.title,
+                        url=norm,
+                        snippet=result.snippet,
+                        provider=result.provider,
+                        position=result.position,
+                    )
+                )
+
+        # Prepend snippet-injected candidates so they are scored and validated
+        results = snippet_injected + results
 
         return results
 
@@ -624,6 +707,28 @@ class WebsiteResolver:
 
             final_url, html = fetched_page
 
+            # Guard against cross-domain redirects to completely unrelated domains
+            # e.g. americanindustrialconstruction.com -> leecontracting.com
+            orig_domain = normalize_domain(candidate.normalized_url)
+            final_domain = normalize_domain(final_url)
+            if orig_domain and final_domain and orig_domain != final_domain:
+                orig_parts = orig_domain.split(".")
+                final_parts = final_domain.split(".")
+                orig_sld = ".".join(orig_parts[-2:]) if len(orig_parts) >= 2 else orig_domain
+                final_sld = ".".join(final_parts[-2:]) if len(final_parts) >= 2 else final_domain
+                if orig_sld != final_sld:
+                    # SLDs differ; verify if the final domain matches the company name
+                    from automation.resolvers.domain_similarity import calculate_domain_similarity
+                    if calculate_domain_similarity(company_name, final_url) < 0.40:
+                        logger.debug(
+                            "Candidate %s redirected to unrelated domain %s; rejected",
+                            candidate.normalized_url,
+                            final_url,
+                        )
+                        if rejected_candidates is not None:
+                            rejected_candidates.append(final_url)
+                        continue
+
             filter_result = evaluate_candidate_url(
                 final_url
             )
@@ -740,12 +845,22 @@ class WebsiteResolver:
             response.raise_for_status()
 
         except requests.RequestException as exc:
-            logger.debug(
-                "Failed to fetch %s: %s",
-                url,
-                exc,
-            )
-            return None
+            # Fallback with simple User-Agent header if session gets blocked or 403
+            try:
+                response = requests.get(
+                    url,
+                    headers={"User-Agent": "Mozilla/5.0"},
+                    timeout=self.request_timeout,
+                    allow_redirects=True,
+                )
+                response.raise_for_status()
+            except requests.RequestException:
+                logger.debug(
+                    "Failed to fetch %s: %s",
+                    url,
+                    exc,
+                )
+                return None
 
         content_type = (
             response.headers
@@ -908,3 +1023,104 @@ class WebsiteResolver:
             return str(configured_name)
 
         return provider.__class__.__name__
+
+    @staticmethod
+    def _has_strong_candidate(
+        results: list[SearchResult],
+        company_name: str,
+    ) -> bool:
+        """
+        Return True if any of the search results appears to be a strong
+        match for the company's official domain.
+
+        A "strong" match means the company's key tokens appear in the
+        hostname of the search result URL.
+        """
+        import re as _re
+        from urllib.parse import urlparse as _urlparse
+
+        EXCLUDED = {
+            "linkedin", "facebook", "youtube", "twitter", "x",
+            "yelp", "yellowpages", "manta", "bbb", "crunchbase",
+            "zoominfo", "dnb", "bloomberg", "glassdoor", "indeed",
+        }
+
+        legal = {
+            "inc", "llc", "ltd", "corp", "co", "company", "lp", "llp",
+            "incorporated", "limited", "corporation", "pllc",
+        }
+        tokens = [
+            t for t in _re.findall(r"[a-z0-9]+", company_name.lower())
+            if t not in legal and len(t) >= 3
+        ]
+
+        if not tokens:
+            return False
+
+        for result in results:
+            try:
+                host = (_urlparse(result.url).hostname or "").lower().removeprefix("www.")
+            except Exception:
+                continue
+
+            if any(ex in host for ex in EXCLUDED):
+                continue
+
+            hostname_clean = _re.sub(r"[^a-z0-9]", "", host.split(".")[0])
+            matches = sum(1 for t in tokens if t in hostname_clean)
+            joined = "".join(tokens)
+
+            if matches >= 2 or joined in hostname_clean:
+                return True
+
+        return False
+
+    @staticmethod
+    def _extract_urls_from_snippet(snippet: str | None, title: str = "") -> list[str]:
+        """
+        Extract plain URLs and domain-like patterns mentioned inside a search snippet.
+
+        Many directory results (e.g. mckeesrocks.org) will include the actual company
+        website inside their snippet text: "Business Website Address www.acmeclay.com".
+        This method extracts such URLs so they can be injected as synthetic candidates.
+        """
+        if not snippet:
+            return []
+
+        found: list[str] = []
+        seen: set[str] = set()
+
+        # Match fully-qualified URLs (http[s]://...)
+        full_url_pattern = re.compile(
+            r"https?://(?:www\.)?[a-z0-9][-a-z0-9]*(?:\.[a-z0-9][-a-z0-9]*)+(?:/[^\s,;\"'<>]*)?"
+            , re.IGNORECASE
+        )
+        # Match bare domain patterns like "www.acmeclay.com" or "acmeclay.com"
+        bare_domain_pattern = re.compile(
+            r"\bwww\.[a-z0-9][-a-z0-9]*(?:\.[a-z]{2,})+\b"
+            r"|\b[a-z0-9][-a-z0-9]*\.(?:com|net|org|biz|us|info)\b",
+            re.IGNORECASE
+        )
+
+        combined = f"{snippet} {title}"
+
+        for m in full_url_pattern.finditer(combined):
+            url = m.group(0).rstrip(".,;)")
+            key = url.lower()
+            if key not in seen:
+                seen.add(key)
+                found.append(url)
+
+        for m in bare_domain_pattern.finditer(combined):
+            raw = m.group(0).rstrip(".,;)")
+            # Build a proper URL
+            if raw.startswith("www.") or "://" not in raw:
+                url = f"https://{raw}"
+            else:
+                url = raw
+            key = url.lower()
+            if key not in seen:
+                seen.add(key)
+                found.append(url)
+
+        return found

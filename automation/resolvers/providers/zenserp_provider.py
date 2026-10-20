@@ -40,7 +40,7 @@ class ZenserpProvider(SearchProvider):
         self,
         api_key: str | None = None,
         endpoint: str = DEFAULT_ZENSERP_ENDPOINT,
-        timeout: float = 15.0,
+        timeout: float = 6.0,
         max_results: int = 10,
         country_code: str = "us",
         language: str = "en",

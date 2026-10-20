@@ -92,8 +92,9 @@ class CompanyPipeline:
 
         print("\n--- TOP CANDIDATES ---")
         for index, item in enumerate(top_candidates, start=1):
+            safe_title = (item.result.title or "").encode("ascii", errors="replace").decode("ascii")
             print(
-                f"{index}. {item.result.title}"
+                f"{index}. {safe_title}"
                 f" | {item.result.url}"
                 f" | Destination: {getattr(item.result, 'destination', None)}"
             )

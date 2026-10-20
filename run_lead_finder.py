@@ -8,18 +8,27 @@ and phone numbers, and exports qualified leads to CSV.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import csv
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
+# Ensure UTF-8 console output on Windows
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 from automation.models.search_filters import SearchFilters
 from automation.sources.fmcsa.connector import FMCSAConnector
 from automation.intelligence.models import CompanyInput
 from automation.intelligence.company_service import CompanyService
 from automation.verification.lead_verifier import LeadVerifier
-from automation.verification.models import VerificationStatus
+from automation.verification.models import EXPORT_FIELDNAMES, VerificationStatus
 
 
 def parse_args() -> argparse.Namespace:
@@ -106,8 +115,22 @@ def main() -> int:
             state=state,
         )
 
-        evidence = service.resolve(company_input)
+        # Resolve with strict per-company timeout (45s max) to prevent provider hangs
+        evidence = None
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(service.resolve, company_input)
+                evidence = future.result(timeout=45.0)
+        except concurrent.futures.TimeoutError:
+            print(f"  [TIMEOUT] Resolution exceeded 45s limit for {company_input.name}. Aborting company.")
+        except Exception as exc:
+            print(f"  [ERROR] Resolution failed for {company_input.name}: {exc}")
+
         duration = round(time.perf_counter() - comp_start, 2)
+
+        # Inter-company cooldown: prevents DDGS rate-limit cascading across companies.
+        if idx < len(leads):
+            time.sleep(2)
 
         # Apply Lead Verification Layer
         verified = verifier.verify(company_input, evidence, duration=duration)
@@ -137,39 +160,32 @@ def main() -> int:
 
     # 3. Write verified outputs to CSV with provenance
     print("\n[Step 3/3] Writing verified lead results and provenance to CSV...")
-    fieldnames = [
-        "company_name",
-        "location",
-        "status",
-        "status_reason",
-        "website",
-        "website_source",
-        "email",
-        "email_source",
-        "phone",
-        "phone_source",
-        "confidence",
-        "source",
-        "elapsed_seconds",
-        "created_at",
-    ]
-
     with open(output_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=EXPORT_FIELDNAMES)
         writer.writeheader()
-        writer.writerows(results)
+        for r in results:
+            row = {
+                field: r.get(field, "") if r.get(field) is not None else ""
+                for field in EXPORT_FIELDNAMES
+            }
+            writer.writerow(row)
 
+    total_full_leads = sum(1 for r in results if r.get("lead_tier") == "FULL_LEAD")
+    total_website_only = sum(1 for r in results if r.get("lead_tier") == "WEBSITE_ONLY")
     total_time = round(time.perf_counter() - start_time, 2)
+
     print("\n" + "=" * 80)
     print("RUN COMPLETE - LEAD VERIFICATION SUMMARY")
-    print(f"Total Companies Processed : {len(leads)}")
-    print(f"VERIFIED Leads            : {total_verified} ({(total_verified/len(leads))*100:.1f}%)")
-    print(f"NEEDS_REVIEW Leads        : {total_needs_review} ({(total_needs_review/len(leads))*100:.1f}%)")
-    print(f"UNRESOLVED Leads          : {total_unresolved} ({(total_unresolved/len(leads))*100:.1f}%)")
-    print(f"Verified Emails Extracted : {total_emails}")
-    print(f"Verified Phones Extracted : {total_phones}")
-    print(f"Total Runtime             : {total_time}s")
-    print(f"Results Saved To          : {output_path.resolve()}")
+    print(f"Total Companies Processed        : {len(leads)}")
+    print(f"VERIFIED Leads (Total)           : {total_verified} ({(total_verified/len(leads))*100:.1f}%)")
+    print(f"  - Full Leads (Website + Contact): {total_full_leads} ({(total_full_leads/len(leads))*100:.1f}%)")
+    print(f"  - Website-Only Leads            : {total_website_only} ({(total_website_only/len(leads))*100:.1f}%)")
+    print(f"NEEDS_REVIEW Leads               : {total_needs_review} ({(total_needs_review/len(leads))*100:.1f}%)")
+    print(f"UNRESOLVED Leads                 : {total_unresolved} ({(total_unresolved/len(leads))*100:.1f}%)")
+    print(f"Verified Emails Extracted        : {total_emails}")
+    print(f"Verified Phones Extracted        : {total_phones}")
+    print(f"Total Runtime                    : {total_time}s")
+    print(f"Results Saved To                 : {output_path.resolve()}")
     print("=" * 80)
 
     return 0

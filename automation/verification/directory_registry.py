@@ -49,7 +49,9 @@ EXCLUDED_DOMAINS: set[str] = {
     "foursquare.com",
     "fyple.com",
     "glassdoor.com",
+    "gethuman.com",
     "local.yahoo.com",
+    "localsearch.com",
     "manta.com",
     "mapquest.com",
     "myplaniq.com",
@@ -72,7 +74,9 @@ EXCLUDED_DOMAINS: set[str] = {
     "arktms.com",
     "brokersnapshot.com",
     "carrier411.com",
+    "carriersource.io",
     "dotsearch.us",
+    "fenderr.com",
     "findtruckservice.com",
     "freightconnect.com",
     "freightdatawatch.com",
@@ -80,11 +84,15 @@ EXCLUDED_DOMAINS: set[str] = {
     "lanefinder.com",
     "loadwrap.com",
     "logisticsvendorlocator.com",
+    "movequotecheck.com",
     "mtstruckservice.com",
+    "otrucking.com",
+    "prohrhq.com",
     "quicktransportsolutions.com",
     "roserocket.com",
     "safer.fmcsa.dot.gov",
     "searchcarriers.com",
+    "superpages.com",
     "thetruckersreport.com",
     "truckcarrierhub.com",
     "truckcompaniesin.com",
@@ -98,13 +106,16 @@ EXCLUDED_DOMAINS: set[str] = {
     "crosscountrymovers.com",
     "greatguysmovers.com",
     "hireahelper.com",
+    "move-and-care.com",
     "movebuddha.com",
     "moverreviews.com",
+    "movers.com",
     "moving.com",
     "movingcompanyreviews.com",
     "movinglabor.com",
     "mymove.com",
     "topmovingreviews.com",
+    "uship.com",
 
     # Government and regulatory portals
     "courtlistener.com",
@@ -114,7 +125,21 @@ EXCLUDED_DOMAINS: set[str] = {
     "puc.pa.gov",
     "sec.gov",
 
-    # People-search and telephone lookup
+    # People-search, telephone lookup, and postal directories
+    "zip-codes.com",
+    "united-local.com",
+    "allbluebook.com",
+    "siccode.com",
+    "wattagnet.com",
+    "showmelocal.com",
+    "usbizs.com",
+    "myhomepro.org",
+    "whereorg.com",
+    "businessyab.com",
+    "carriertruth.com",
+    "fleetcollect.net",
+    "dispatchff.com",
+    "nationalpublicdata.com",
     "mylife.com",
     "sports-reference.com",
     "telephonedirectories.us",
@@ -128,6 +153,29 @@ EXCLUDED_DOMAINS: set[str] = {
     "simplyhired.com",
     "snagajob.com",
     "ziprecruiter.com",
+
+    # E-commerce retail marketplaces (not B2B freight or service company sites)
+    "aliexpress.com",
+    "alibaba.com",
+    "temu.com",
+    "shein.com",
+    "ebay.com",
+    "amazon.com",
+    "walmart.com",
+    "target.com",
+    "etsy.com",
+    "wish.com",
+    "overstock.com",
+    "wayfair.com",
+
+    # Music, artists, and entertainment platforms
+    "discogs.com",
+    "allmusic.com",
+    "last.fm",
+    "bandcamp.com",
+    "soundcloud.com",
+    "reverbnation.com",
+    "spotify.com",
 
     # Municipal and civic domains misattributed to companies
     "mckeesrocks.org",
@@ -174,11 +222,31 @@ EXCLUDED_PATH_SEGMENTS: set[str] = {
 
 # Foreign country-code top-level domains incompatible with domestic US operations
 FOREIGN_CCTLDS: set[str] = {
+    # Europe
     "ca", "uk", "co.uk", "de", "fr", "it", "es", "nl", "be", "ch", "at",
-    "pl", "cz", "se", "no", "dk", "fi", "ru", "ua", "by", "cn",
-    "jp", "kr", "in", "pk", "bd", "vn", "th", "my", "sg", "ph",
-    "id", "au", "nz", "za", "ng", "eg", "ke", "br", "ar", "mx",
-    "cl", "co", "pe", "tr", "sa", "ae", "il", "ir", "iq", "jo",
+    "pl", "cz", "se", "no", "dk", "fi", "ru", "ua", "by", "pt", "gr",
+    "ro", "bg", "hr", "rs", "sk", "si", "lt", "lv", "ee", "is", "lu",
+    # East Asia
+    "cn", "jp", "kr", "tw", "hk", "mo",
+    # South & Southeast Asia
+    "in", "pk", "bd", "vn", "th", "my", "sg", "ph", "id", "lk", "mm",
+    "kh", "la", "np", "bt", "mv",
+    # Central Asia
+    "uz", "kz", "ge", "az", "am", "tm", "kg", "tj",
+    # Oceania
+    "au", "nz",
+    # Africa
+    "za", "ng", "eg", "ke", "et", "gh", "tz", "ug", "cm", "sn", "ci",
+    "bw", "rw",
+    # Latin America
+    "br", "ar", "mx", "cl", "co", "pe", "bo", "uy", "py", "ec", "ve",
+    "gt", "hn", "cr", "pa", "do", "cu", "gy", "sr",
+    # Middle East
+    "tr", "sa", "ae", "il", "ir", "iq", "jo",
+    # Compound TLDs (explicit for common patterns)
+    "com.bo", "com.ar", "com.br", "com.mx", "com.co", "com.pe",
+    "com.ng", "com.eg", "com.pk", "com.bd", "com.vn", "com.my",
+    "com.sg", "com.ph", "com.au", "com.tr", "com.sa",
 }
 
 
@@ -247,6 +315,14 @@ def is_civic_or_gov_domain(url_or_domain: str) -> bool:
     return False
 
 
+# Domestic US or widely accepted tech/commercial top-level domains
+DOMESTIC_OR_GLOBAL_TLDS: set[str] = {
+    "com", "net", "org", "edu", "gov", "mil", "us", "biz", "info",
+    "co", "io", "ai", "app", "dev", "me", "tv", "cc", "ly", "to",
+    "tech", "pro", "online", "site", "store", "llc", "inc", "corp",
+}
+
+
 def is_foreign_cctld(url_or_domain: str, domestic_country: str = "US") -> bool:
     """
     Check if a domain ends with a foreign country-code TLD incompatible with domestic US companies.
@@ -257,11 +333,13 @@ def is_foreign_cctld(url_or_domain: str, domestic_country: str = "US") -> bool:
 
     parts = domain.split(".")
     if len(parts) >= 2:
-        # Check two-part TLD like .co.uk
+        last_part = parts[-1]
+        # Any 2-letter extension that is not US or a common global/tech TLD is a foreign ccTLD
+        if len(last_part) == 2 and last_part not in DOMESTIC_OR_GLOBAL_TLDS:
+            return True
         two_part = ".".join(parts[-2:])
         if two_part in FOREIGN_CCTLDS:
             return True
-        last_part = parts[-1]
         if last_part in FOREIGN_CCTLDS:
             return True
 

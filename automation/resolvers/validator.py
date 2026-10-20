@@ -32,6 +32,56 @@ GENERIC_WORDS = {
     "enterprise",
 }
 
+# Generic industry / service category terms that must not alone constitute brand identity
+GENERIC_INDUSTRY_WORDS = {
+    "and", "group", "international", "industries", "industry", "services",
+    "service", "solutions", "enterprises", "enterprise", "holdings",
+    "delivery", "transfer", "transport", "transportation", "trucking",
+    "freight", "logistics", "shipping", "storage", "moving",
+    "supplies", "products", "materials", "sales", "contracting",
+    "construction", "commercial", "industrial", "management",
+}
+
+# Keywords that strongly indicate a personal/author/blog site rather than a business
+PERSONAL_SITE_SIGNALS = {
+    "author", "novelist", "fiction", "nonfiction", "non-fiction",
+    "mystery", "thriller", "romance", "biography", "memoir",
+    "espionage", "spy novel", "bestseller", "book series",
+    "blog", "my blog", "personal website", "personal site",
+    "freelance writer", "freelance journalist", "poet", "poetry",
+    "screenplay", "screenwriter", "illustrator", "artist portfolio",
+    "photographer", "photography portfolio",
+    "musician", "jazz", "trio", "pianist", "guitarist", "recording artist",
+    "discography", "live concerts", "tour dates", "album release", "stream music",
+    "movies", "film", "filmmaker", "actor", "actress", "director", "cinema",
+    "theatre", "theater", "acting", "casting", "screenplay",
+}
+
+ERROR_PAGE_SIGNALS = {
+    "not acceptable!", "406 not acceptable", "mod_security",
+    "access denied", "403 forbidden", "404 not found",
+    "page not found", "blocked by cloudflare", "attention required! | cloudflare",
+    "security check to access", "just a moment...", "ray id:",
+    "error 404", "error 403", "error 500", "502 bad gateway",
+    "503 service unavailable", "504 gateway time-out",
+}
+
+# Keywords that indicate a legitimate US business website
+BUSINESS_SITE_SIGNALS = {
+    # Freight / trucking / transport
+    "freight", "trucking", "carrier", "transport", "logistics",
+    "shipping", "delivery", "dispatch", "fleet", "trailer",
+    "fmcsa", "dot number", "motor carrier", "truck",
+    # Chemicals / manufacturing
+    "bleach", "chemical", "manufacturing", "industrial",
+    "distributor", "wholesale", "product", "production",
+    # General commerce
+    "our services", "contact us", "request a quote", "get a quote",
+    "about us", "our team", "our company", "our clients",
+    "careers", "employment", "hire us",
+    "equipment", "contractor", "construction",
+}
+
 
 def _normalize_text(value: str | None) -> str:
     if not value:
@@ -84,6 +134,23 @@ def _hostname_text(url: str) -> str:
     ).strip()
 
 
+def _looks_like_personal_name(company_name: str) -> bool:
+    """
+    Return True when the company name looks like a personal first-last name.
+
+    Heuristic: exactly two meaningful tokens, both purely alphabetic,
+    each 2-15 characters long, with no legal suffixes or generic words.
+    e.g. 'Glen Dyer', 'Richard Austin', 'James Austin'
+    """
+    tokens = re.findall(r"[a-z]+", company_name.lower())
+    meaningful = [
+        t for t in tokens
+        if t not in LEGAL_SUFFIXES and t not in GENERIC_WORDS
+        and t not in GENERIC_INDUSTRY_WORDS and len(t) >= 2
+    ]
+    return len(meaningful) == 2 and all(2 <= len(t) <= 15 for t in meaningful)
+
+
 def validate_company_homepage(
     company_name: str,
     location: str | None,
@@ -96,9 +163,55 @@ def validate_company_homepage(
     A company appearing only in general page text is not sufficient.
     The hostname, page title, or primary headings must provide a
     strong ownership signal.
+
+    Additional semantic guard: personal author/blog sites are rejected
+    even when the domain and page contain the company name tokens,
+    because the company may share its name with a private individual.
     """
 
     if not html.strip():
+        return False
+
+    lower_html = html.lower()
+    if any(sig in lower_html[:4000] for sig in ERROR_PAGE_SIGNALS):
+        return False
+
+    parked_indicators = (
+        "/lander",
+        "buy this domain",
+        "domain is for sale",
+        "this domain may be for sale",
+        "inquire about this domain",
+        "domain has expired",
+        "hugedomains.com",
+        "dan.com",
+        "sedoparking.com",
+        "afternic.com",
+        "parked domain",
+        "godaddy parked",
+        "fatal error",
+        "parse error",
+        "undefined function",
+        "database error",
+        "error establishing a database connection",
+    )
+    if any(indicator in lower_html for indicator in parked_indicators):
+        return False
+
+    # --- Semantic context guard ---
+    # Reject personal author / blog / portfolio sites masquerading as businesses.
+    # We check a broader excerpt of the page (up to 40 000 chars) for personal signals.
+    personal_signals_found = sum(
+        1 for sig in PERSONAL_SITE_SIGNALS if sig in lower_html[:40_000]
+    )
+    business_signals_found = sum(
+        1 for sig in BUSINESS_SITE_SIGNALS if sig in lower_html[:40_000]
+    )
+    # If the page shows personal/author/entertainer indicators, reject it immediately.
+    if personal_signals_found >= 2:
+        return False
+    # Any personal signal on a personal-name company (e.g. Gary Anderson, Glen Dyer) is an immediate reject
+    if personal_signals_found >= 1 and _looks_like_personal_name(company_name):
         return False
 
     company_tokens = _company_tokens(company_name)
@@ -130,6 +243,9 @@ def validate_company_homepage(
         strip=True,
     )[:20_000]
 
+    if len(page_text) < 20:
+        return False
+
     hostname_text = _hostname_text(url)
 
     normalized_title = _normalize_text(title)
@@ -145,6 +261,23 @@ def validate_company_homepage(
         for token in company_tokens
         if token in hostname_text
     }
+
+    # Initialism matching: check if hostname starts with the company's initials
+    # e.g. hostname "aicpittsburgh" matches "American Industrial Contracting Inc" via "aic"
+    INITIALISM_MIN_TOKENS = 2
+    initialism_meaningful = [
+        t for t in re.findall(r"[a-z0-9]+", company_name.lower())
+        if t not in LEGAL_SUFFIXES and len(t) >= 2
+    ]
+    company_initials = "".join(t[0] for t in initialism_meaningful)
+    if (
+        len(company_initials) >= INITIALISM_MIN_TOKENS
+        and len(hostname_matches) == 0
+        and hostname_text.startswith(company_initials)
+    ):
+        # Treat initialism match as a synthetic hostname match for all tokens
+        # (company name must still appear in title/headings for full verification)
+        hostname_matches = {company_tokens[0]} if company_tokens else set()
 
     title_matches = {
         token
@@ -213,7 +346,46 @@ def validate_company_homepage(
                 return True
             return False
 
+        # Personal name companies: require location context even without explicit location arg
+        if _looks_like_personal_name(company_name):
+            # Without location context we cannot distinguish Glen Dyer (trucker) from
+            # Glen Dyer (author). Reject to avoid false positives.
+            return False
+
         return True
+
+    # Guard against generic industry word collisions (e.g. Compton Transfer matching Boise Delivery & Transfer via 'delivery' + 'transfer')
+    distinctive_tokens = [
+        t for t in company_tokens if t not in GENERIC_INDUSTRY_WORDS
+    ]
+    if distinctive_tokens and not any(t in strong_matches for t in distinctive_tokens):
+        # Company has distinctive name tokens, but strong matches only contain generic industry terms.
+        # Reject to prevent matching competitors or unrelated companies in the same industry.
+        return False
+
+    # Guard for personal-name companies (e.g. James Austin, Glen Dyer, Richard Austin):
+    # Having name tokens in a domain or title is not enough without location corroboration
+    # or clear business context.
+    if _looks_like_personal_name(company_name):
+        if personal_signals_found >= 1:
+            return False
+
+        location_corroborated = False
+        if location:
+            parts = [p.strip().lower() for p in location.split(",") if p.strip()]
+            city_part = parts[0] if parts else ""
+            state_part = parts[1].strip() if len(parts) > 1 else ""
+            if city_part and len(city_part) >= 3 and city_part in normalized_page_text:
+                location_corroborated = True
+            elif state_part and (
+                state_part in normalized_page_text.split()
+                or (len(state_part) == 2 and re.search(rf"\b{re.escape(state_part)}\b", normalized_page_text))
+            ):
+                location_corroborated = True
+
+        has_biz_signal = business_signals_found >= 1 and personal_signals_found == 0
+        if not location_corroborated and not has_biz_signal:
+            return False
 
     # Strong official-domain signal.
     if len(hostname_matches) >= 2:
@@ -251,7 +423,7 @@ def validate_company_homepage(
         )
 
         if (
-            len(strong_matches) >= 2
+            (len(strong_matches) >= 2 or (len(strong_matches) >= 1 and len(page_matches) >= len(company_tokens)))
             and len(page_matches) >= 2
             and location_matches >= 1
         ):

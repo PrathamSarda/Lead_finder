@@ -37,8 +37,15 @@ class ResolutionResult:
     attempted_candidates: int = 0
     rejected_candidates: list[str] = field(default_factory=list)
     validated_candidates: list[str] = field(default_factory=list)
+    candidate_results: list[dict[str, str]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.candidate_results, list):
+            object.__setattr__(
+                self,
+                "candidate_results",
+                list(self.candidate_results),
+            )
         if not isinstance(self.rejected_candidates, list):
             object.__setattr__(
                 self,

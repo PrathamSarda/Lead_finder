@@ -46,6 +46,9 @@ class CompanyEvidence:
     # Sources that contributed to the merged result
     sources: list[str] | None = None
 
+    # Top search candidates for client review
+    candidate_results: list[dict[str, str]] | None = None
+
 
 
     def __post_init__(self) -> None:

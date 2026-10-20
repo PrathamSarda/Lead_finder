@@ -1,7 +1,15 @@
 """
 FastAPI application entrypoint.
 """
+import sys
+from pathlib import Path
 from contextlib import asynccontextmanager
+
+backend_dir = Path(__file__).resolve().parent.parent
+workspace_dir = backend_dir.parent
+for d in (backend_dir, workspace_dir):
+    if str(d) not in sys.path:
+        sys.path.insert(0, str(d))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +22,7 @@ except ImportError:
     from app.api.v1.api import api_router
     from app.core.config import settings
     from app.scheduler.scheduler import start_scheduler, shutdown_scheduler
+
 
 
 @asynccontextmanager

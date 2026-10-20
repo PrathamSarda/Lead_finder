@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 try:
@@ -50,49 +51,70 @@ class DDGSProvider(SearchProvider):
         if not normalized_query:
             return []
 
-        raw_results = None
-        last_error = None
+        # Retry with exponential back-off on DDGS rate limiting
+        _RETRY_DELAYS = [5, 10, 20]
+        for attempt, delay in enumerate([0] + _RETRY_DELAYS, start=1):
+            if delay:
+                time.sleep(delay)
 
-        # Try configured backend first, then fallback to 'auto' if different
-        backends_to_try = [self.backend]
-        if self.backend != "auto":
-            backends_to_try.append("auto")
+            raw_results = None
+            last_error = None
 
-        try:
-            import automation.resolvers.ddgs_resolver as bridge
-            DDGS_cls = getattr(bridge, "DDGS", DDGS)
-        except Exception:
-            DDGS_cls = DDGS
+            # Try configured backend first, then fallback to 'auto' if different
+            backends_to_try = [self.backend]
+            if self.backend != "auto":
+                backends_to_try.append("auto")
 
-        for b in backends_to_try:
             try:
-                inst = DDGS_cls()
-                if hasattr(inst, "_mock_return_value") or hasattr(inst, "side_effect"):
-                    text_fn = inst.text
-                    kwargs: dict[str, Any] = {"region": self.region, "safesearch": self.safesearch, "max_results": self.max_results}
-                    try:
-                        results = list(text_fn(normalized_query, backend=b, **kwargs))
-                    except TypeError:
-                        results = list(text_fn(normalized_query, **kwargs))
-                else:
-                    with inst as ddgs:
-                        results = list(
-                            ddgs.text(
-                                normalized_query,
-                                region=self.region,
-                                safesearch=self.safesearch,
-                                max_results=self.max_results,
-                                backend=b,
+                import automation.resolvers.ddgs_resolver as bridge
+                DDGS_cls = getattr(bridge, "DDGS", DDGS)
+            except Exception:
+                DDGS_cls = DDGS
+
+            for b in backends_to_try:
+                try:
+                    inst = DDGS_cls()
+                    if hasattr(inst, "_mock_return_value") or hasattr(inst, "side_effect"):
+                        text_fn = inst.text
+                        kwargs: dict[str, Any] = {"region": self.region, "safesearch": self.safesearch, "max_results": self.max_results}
+                        try:
+                            results = list(text_fn(normalized_query, backend=b, **kwargs))
+                        except TypeError:
+                            results = list(text_fn(normalized_query, **kwargs))
+                    else:
+                        with inst as ddgs:
+                            results = list(
+                                ddgs.text(
+                                    normalized_query,
+                                    region=self.region,
+                                    safesearch=self.safesearch,
+                                    max_results=self.max_results,
+                                    backend=b,
+                                )
                             )
-                        )
-                if results is not None:
-                    raw_results = results
-                    break
-            except Exception as exc:
-                last_error = exc
+                    if results is not None:
+                        raw_results = results
+                        break
+                except Exception as exc:
+                    last_error = exc
+                    continue
+
+            # Determine if we hit a rate limit and should retry
+            is_rate_limit = False
+            if last_error is not None:
+                err_text = str(last_error).lower()
+                if any(k in err_text for k in ("ratelimit", "rate limit", "429", "too many", "quota")):
+                    is_rate_limit = True
+
+            if raw_results is not None:
+                # Success
+                return self._normalize_results(raw_results)
+
+            if is_rate_limit and attempt <= len(_RETRY_DELAYS):
+                # Will retry after back-off
                 continue
 
-        if raw_results is None:
+            # Non-rate-limit error or exhausted retries
             if last_error:
                 if isinstance(last_error, StopIteration):
                     return []
@@ -105,7 +127,8 @@ class DDGSProvider(SearchProvider):
                 ) from last_error
             return []
 
-        return self._normalize_results(raw_results)
+        # Exhausted all retries
+        return []
 
     @staticmethod
     def _normalize_results(
