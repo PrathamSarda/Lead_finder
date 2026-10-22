@@ -72,20 +72,90 @@ def get_all_csv_files() -> List[Path]:
     """Find all lead CSV output files sorted by modification time (newest first)."""
     if not OUTPUTS_DIR.exists():
         return []
-    files = list(OUTPUTS_DIR.glob("leads_*.csv"))
+    patterns = ["bookkeeping_leads_*.csv", "leads_*.csv", "intent_leads_*.csv"]
+    files: List[Path] = []
+    for pat in patterns:
+        files.extend(OUTPUTS_DIR.glob(pat))
     # Also include benchmark CSVs if present
     benchmark_dir = OUTPUTS_DIR / "benchmark"
     if benchmark_dir.exists():
         files.extend(benchmark_dir.glob("*.csv"))
+    # Remove duplicates if any
+    files = list({f.resolve(): f for f in files}.values())
     files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return files
 
 
 def parse_csv_lead(row: Dict[str, str], source_file: str) -> Dict[str, Any]:
-    """Normalize a CSV lead row into a consistent dictionary."""
+    """Normalize a CSV lead row into a consistent dictionary, supporting both v1 and intent pipelines."""
+    # Support both column namings
+    company_name = (
+        row.get("Company Name")
+        or row.get("company_name")
+        or ""
+    ).strip()
+
+    location = (
+        row.get("Location Address")
+        or row.get("address")
+        or row.get("location")
+        or ""
+    ).strip()
+
+    email = (
+        row.get("Verified Email")
+        or row.get("owner_email")
+        or row.get("email")
+        or ""
+    ).strip()
+
+    phone = (
+        row.get("Phone")
+        or row.get("phone")
+        or ""
+    ).strip()
+
+    website = (
+        row.get("Website")
+        or row.get("website")
+        or row.get("domain")
+        or ""
+    ).strip()
+
+    status_raw = (
+        row.get("Lead Status")
+        or row.get("pipeline_status")
+        or row.get("status")
+        or "UNRESOLVED"
+    ).strip().upper()
+
+    # Normalize status for dashboard display
+    if status_raw in ("READY_FOR_OUTREACH", "QUALIFIED_CONVERTIBLE", "VERIFIED"):
+        status = "VERIFIED"
+        lead_tier = "FULL_LEAD" if (email and phone) else ("FULL_LEAD" if email else "WEBSITE_ONLY")
+    elif status_raw in ("NEEDS_REVIEW", "INTENT_VERIFIED_NO_EMAIL"):
+        status = "NEEDS_REVIEW"
+        lead_tier = "WEBSITE_ONLY"
+    elif status_raw in ("DROPPED_SIZE", "NO_INTENT"):
+        status = "UNRESOLVED"
+        lead_tier = "UNRESOLVED"
+    else:
+        status = status_raw
+        lead_tier = row.get("lead_tier", "UNRESOLVED").strip().upper()
+
+    status_reason = (
+        row.get("Bookkeeping Intent Reason")
+        or row.get("ai_intent_reason")
+        or row.get("status_reason")
+        or ""
+    ).strip()
+
+    raw_conf = row.get("Verification Score") or row.get("email_confidence") or row.get("confidence") or "0"
     confidence_val = 0.0
     try:
-        confidence_val = float(row.get("confidence", 0.0) or 0.0)
+        val = float(str(raw_conf).replace("%", "").strip() or 0.0)
+        # Normalize: if provided as percentage (e.g. 92.0), scale down to 0.92
+        confidence_val = val / 100.0 if val > 1.0 else val
     except (ValueError, TypeError):
         pass
 
@@ -104,27 +174,57 @@ def parse_csv_lead(row: Dict[str, str], source_file: str) -> Dict[str, Any]:
         except Exception:
             pass
 
+    owner_name = (
+        row.get("Decision Maker Name")
+        or row.get("decision_maker_name")
+        or row.get("owner_name")
+        or ""
+    ).strip()
+    owner_title = (
+        row.get("Decision Maker Title")
+        or row.get("decision_maker_title")
+        or row.get("owner_title")
+        or ""
+    ).strip()
+    company_linkedin_url = (
+        row.get("Company LinkedIn")
+        or row.get("company_linkedin_url")
+        or row.get("linkedin")
+        or ""
+    ).strip()
+    decision_maker_linkedin_url = (
+        row.get("Decision Maker LinkedIn")
+        or row.get("decision_maker_linkedin_url")
+        or ""
+    ).strip()
+
     return {
-        "company_name": row.get("company_name", "").strip(),
-        "location": row.get("location", "").strip(),
-        "status": row.get("status", "UNRESOLVED").strip().upper(),
-        "lead_tier": row.get("lead_tier", "UNRESOLVED").strip().upper(),
-        "status_reason": row.get("status_reason", "").strip(),
-        "website": row.get("website", "").strip(),
-        "website_status": row.get("website_status", "").strip(),
-        "website_source": row.get("website_source", "").strip(),
-        "email": row.get("email", "").strip(),
-        "email_status": row.get("email_status", "").strip(),
-        "email_source": row.get("email_source", "").strip(),
-        "phone": row.get("phone", "").strip(),
-        "phone_status": row.get("phone_status", "").strip(),
-        "phone_source": row.get("phone_source", "").strip(),
+        "company_name": company_name,
+        "location": location,
+        "status": status,
+        "lead_tier": lead_tier,
+        "status_reason": status_reason,
+        "website": website,
+        "website_status": "VALID" if website else "",
+        "website_source": row.get("website_source", ""),
+        "email": email,
+        "email_status": "VERIFIED" if email else "",
+        "email_source": row.get("email_source", ""),
+        "phone": phone,
+        "phone_status": "VERIFIED" if phone else "",
+        "phone_source": row.get("phone_source", ""),
         "confidence": confidence_val,
-        "source": row.get("source", "fmcsa").strip(),
+        "source": "intent_pipeline" if "bookkeeping" in source_file or "intent" in source_file else row.get("source", "fmcsa"),
         "candidate_results": candidates_list,
         "elapsed_seconds": elapsed_val,
         "created_at": row.get("created_at", "").strip(),
         "source_file": source_file,
+        "owner_name": owner_name,
+        "owner_title": owner_title,
+        "company_linkedin_url": company_linkedin_url,
+        "decision_maker_name": owner_name,
+        "decision_maker_title": owner_title,
+        "decision_maker_linkedin_url": decision_maker_linkedin_url,
     }
 
 
@@ -211,6 +311,29 @@ def _run_pipeline_worker(count: int, state: Optional[str], mode: str) -> None:
         verifier = LeadVerifier()
 
         leads_to_process = []
+
+        if mode == "bookkeeping" or mode == "intent":
+            with RUN_STATE_LOCK:
+                run_state["current_step"] = "Discovering SMBs & Verifying Bookkeeping Intent"
+            add_log(f"[Step 1/3] Running automated Bookkeeping Intent Discovery for {count} companies...")
+            from automation.pipeline_v2.pipeline_orchestrator import MultiToolLeadPipeline
+            
+            intent_pipe = MultiToolLeadPipeline()
+            # Default automated query for bookkeeping candidates
+            query_str = f"commercial services in {state.upper() if state else 'TX'}"
+            leads_result = intent_pipe.run(query=query_str, target_count=count, output_dir=str(OUTPUTS_DIR))
+            
+            with RUN_STATE_LOCK:
+                run_state["processed_count"] = len(leads_result)
+                run_state["verified_count"] = sum(1 for l in leads_result if l.pipeline_status == "QUALIFIED_CONVERTIBLE")
+                run_state["full_lead_count"] = sum(1 for l in leads_result if l.pipeline_status == "QUALIFIED_CONVERTIBLE")
+                run_state["status"] = "completed"
+                run_state["current_step"] = "Complete"
+                if run_state["start_time"]:
+                    run_state["elapsed_seconds"] = round(time.time() - run_state["start_time"], 1)
+
+            add_log(f"Bookkeeping Pipeline Finished! Found {run_state['verified_count']} verified leads ready for outreach.")
+            return
 
         if mode == "test_batch":
             with RUN_STATE_LOCK:

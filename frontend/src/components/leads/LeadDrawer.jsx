@@ -17,6 +17,14 @@ import {
   X,
 } from "lucide-react";
 
+function LinkedInIcon({ className = "h-4 w-4" }) {
+  return (
+    <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+      <path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.28 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.75M6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z" />
+    </svg>
+  );
+}
+
 export default function LeadDrawer({ lead, isOpen, onClose }) {
   const [copiedField, setCopiedField] = useState(null);
 
@@ -90,38 +98,86 @@ export default function LeadDrawer({ lead, isOpen, onClose }) {
 
           {/* Drawer Body */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            {/* Quick Contact Action Card */}
+            {/* Primary Profiles & Contact Channels */}
             <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4 space-y-3.5">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                Primary Contact Channels
+                Verified LinkedIn & Executive Profiles
               </h3>
 
-              {/* Email */}
+              {/* Company LinkedIn */}
               <div className="flex items-center justify-between rounded-lg bg-slate-900 p-3 border border-slate-800/80">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500/15 text-indigo-400">
-                    <Mail className="h-4 w-4" />
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/15 text-sky-400">
+                    <LinkedInIcon className="h-4 w-4" />
                   </div>
                   <div>
-                    <span className="text-[11px] font-medium text-slate-500 block">Verified Email</span>
-                    {lead.email ? (
+                    <span className="text-[11px] font-medium text-slate-500 block">Company LinkedIn</span>
+                    {lead.company_linkedin_url || lead.linkedin ? (
                       <a
-                        href={`mailto:${lead.email}`}
-                        className="text-sm font-semibold text-indigo-300 hover:underline"
+                        href={lead.company_linkedin_url || lead.linkedin}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-semibold text-sky-300 hover:underline flex items-center gap-1.5"
                       >
-                        {lead.email}
+                        <span className="truncate max-w-xs">{lead.company_linkedin_url || lead.linkedin}</span>
+                        <ExternalLink className="h-3 w-3" />
                       </a>
                     ) : (
-                      <span className="text-xs text-slate-500 italic">No direct email found</span>
+                      <span className="text-xs text-slate-500 italic">No LinkedIn page resolved</span>
                     )}
                   </div>
                 </div>
-                {lead.email && (
+                {(lead.company_linkedin_url || lead.linkedin) && (
                   <button
-                    onClick={() => copyToClipboard(lead.email, "email")}
+                    onClick={() => copyToClipboard(lead.company_linkedin_url || lead.linkedin, "company_linkedin")}
                     className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1 text-xs text-slate-300 hover:text-white transition-colors"
                   >
-                    {copiedField === "email" ? (
+                    {copiedField === "company_linkedin" ? (
+                      <>
+                        <Check className="h-3.5 w-3.5 text-emerald-400" />
+                        <span className="text-emerald-400">Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3.5 w-3.5" />
+                        <span>Copy</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+
+              {/* Decision Maker Direct LinkedIn Profile */}
+              <div className="flex items-center justify-between rounded-lg bg-slate-900 p-3 border border-slate-800/80">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500/15 text-indigo-400">
+                    <Users className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <span className="text-[11px] font-medium text-slate-500 block">
+                      Decision Maker: {lead.decision_maker_name || lead.owner_name || "Executive"}
+                    </span>
+                    {lead.decision_maker_linkedin_url ? (
+                      <a
+                        href={lead.decision_maker_linkedin_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-semibold text-indigo-300 hover:underline flex items-center gap-1.5"
+                      >
+                        <span className="truncate max-w-xs">{lead.decision_maker_linkedin_url}</span>
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    ) : (
+                      <span className="text-xs text-slate-500 italic">No personal profile URL found</span>
+                    )}
+                  </div>
+                </div>
+                {lead.decision_maker_linkedin_url && (
+                  <button
+                    onClick={() => copyToClipboard(lead.decision_maker_linkedin_url, "dm_linkedin")}
+                    className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1 text-xs text-slate-300 hover:text-white transition-colors"
+                  >
+                    {copiedField === "dm_linkedin" ? (
                       <>
                         <Check className="h-3.5 w-3.5 text-emerald-400" />
                         <span className="text-emerald-400">Copied</span>
@@ -200,20 +256,6 @@ export default function LeadDrawer({ lead, isOpen, onClose }) {
                     <span className="text-slate-500 italic">None resolved</span>
                   )}
                 </div>
-
-                {lead.email_source && (
-                  <div className="flex items-start justify-between pt-1 border-t border-slate-800/60">
-                    <span className="text-slate-400">Email Provenance Page:</span>
-                    <a
-                      href={lead.email_source}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-slate-300 hover:underline truncate max-w-xs text-right font-mono text-[11px]"
-                    >
-                      {lead.email_source}
-                    </a>
-                  </div>
-                )}
 
                 {lead.phone_source && (
                   <div className="flex items-start justify-between pt-1 border-t border-slate-800/60">

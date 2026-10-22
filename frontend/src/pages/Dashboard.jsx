@@ -35,7 +35,14 @@ import {
 import { leadsApi } from "../api/leads";
 import RunModal from "../components/pipeline/RunModal";
 import LeadDrawer from "../components/leads/LeadDrawer";
-import EmailExportModal from "../components/leads/EmailExportModal";
+
+function LinkedInIcon({ className = "h-3.5 w-3.5" }) {
+  return (
+    <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+      <path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.28 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.75M6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z" />
+    </svg>
+  );
+}
 
 export default function Dashboard() {
   // State for leads & runs
@@ -244,23 +251,23 @@ export default function Dashboard() {
             <span className="text-xs text-slate-400">• Prokizen Global LLP</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
-            Lead Discovery & Verification
+            Bookkeeping Leads &amp; Decision Maker Discovery
           </h1>
           <p className="mt-1 text-xs sm:text-sm text-slate-400 max-w-2xl">
-            Sourcing active US companies (1–20 employees), verifying official web domains, and
-            extracting verified contact emails and phone numbers.
+            Finding small businesses (&lt;20 employees) with hiring/tax intent for bookkeeping services,
+            extracting official company and decision-maker LinkedIn profiles, websites, and phones.
           </p>
         </div>
 
         {/* Global Action Buttons */}
         <div className="flex flex-wrap items-center gap-2.5">
-          {/* Run Discovery */}
+          {/* Run Pipeline */}
           <button
             onClick={() => setIsRunModalOpen(true)}
-            className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 px-4 py-2.5 text-xs sm:text-sm font-bold text-white shadow-lg shadow-indigo-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all"
+            className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 via-indigo-600 to-purple-600 px-5 py-2.5 text-xs sm:text-sm font-bold text-white shadow-lg shadow-indigo-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all"
           >
-            <Play className="h-4 w-4 fill-current" />
-            <span>Run Test Cases / Pipeline</span>
+            <Play className="h-4 w-4 fill-current text-emerald-300" />
+            <span>Run Pipeline</span>
           </button>
 
           {/* Excel Export */}
@@ -270,15 +277,6 @@ export default function Dashboard() {
           >
             <FileSpreadsheet className="h-4 w-4 text-emerald-400" />
             <span>Download Excel (.xlsx)</span>
-          </button>
-
-          {/* Export Emails */}
-          <button
-            onClick={() => setIsEmailModalOpen(true)}
-            className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800/80 px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-slate-200 hover:bg-slate-700 transition-colors"
-          >
-            <Mail className="h-4 w-4 text-indigo-400" />
-            <span>Copy Emails ({allDiscoveredEmails.length})</span>
           </button>
 
           {/* CSV Export */}
@@ -356,17 +354,17 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Card 2: Full Leads (Website + Contact) */}
+        {/* Card 2: Intent-Verified Leads */}
         <div className="glass-card rounded-2xl p-4 transition-all border-emerald-500/20 bg-emerald-950/10">
           <div className="flex items-center justify-between text-slate-400 mb-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-emerald-400">
-              Full Leads (Web + Contact)
+              Verified Intent Leads
             </span>
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-400">
               <Sparkles className="h-4 w-4" />
             </div>
           </div>
-          <div className="text-2xl font-black text-emerald-300">{summary.full_lead_count}</div>
+          <div className="text-2xl font-black text-emerald-300">{summary.verified_count || summary.full_lead_count}</div>
           <div className="mt-1 flex items-center gap-1.5 text-[11px] text-emerald-400">
             <span className="font-bold">{summary.full_lead_rate}%</span> of total batch
           </div>
@@ -388,17 +386,17 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Card 4: Contacts Found */}
+        {/* Card 4: LinkedIn Profiles Found */}
         <div className="glass-card rounded-2xl p-4 transition-all">
           <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider">Contacts Extracted</span>
+            <span className="text-xs font-semibold uppercase tracking-wider">LinkedIn Profiles</span>
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-purple-500/10 text-purple-400">
-              <Mail className="h-4 w-4" />
+              <LinkedInIcon className="h-4 w-4" />
             </div>
           </div>
-          <div className="text-2xl font-black text-purple-300">{summary.emails_count}</div>
+          <div className="text-2xl font-black text-purple-300">{leads.filter(l => l.company_linkedin_url || l.decision_maker_linkedin_url).length}</div>
           <div className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-400">
-            <span>{summary.phones_count} verified direct phones</span>
+            <span>Company &amp; Executive URLs</span>
           </div>
         </div>
 
@@ -474,7 +472,7 @@ export default function Dashboard() {
             <Search className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
             <input
               type="text"
-              placeholder="Search company name, domain, email, phone, location..."
+              placeholder="Search company name, domain, location..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full rounded-xl border border-slate-800 bg-slate-950/90 pl-10 pr-4 py-2 text-xs sm:text-sm text-slate-200 placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -491,29 +489,7 @@ export default function Dashboard() {
 
           {/* Filter Pills & Toggles */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* Tier Filters */}
-            <div className="flex items-center rounded-xl border border-slate-800 bg-slate-950 p-1">
-              {[
-                { id: "ALL", label: "All Tiers" },
-                { id: "FULL_LEAD", label: "Full Lead", color: "text-emerald-400" },
-                { id: "WEBSITE_ONLY", label: "Website Only", color: "text-sky-400" },
-                { id: "NEEDS_REVIEW", label: "Review", color: "text-amber-400" },
-              ].map((tier) => (
-                <button
-                  key={tier.id}
-                  onClick={() => setTierFilter(tier.id)}
-                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-all ${
-                    tierFilter === tier.id
-                      ? "bg-indigo-600 text-white shadow-sm"
-                      : "text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  <span className={tierFilter !== tier.id ? tier.color : ""}>{tier.label}</span>
-                </button>
-              ))}
-            </div>
-
-            {/* Quick Toggles */}
+            {/* Has Decision Maker Profile Toggle */}
             <button
               onClick={() => setOnlyWithEmail(!onlyWithEmail)}
               className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors ${
@@ -522,20 +498,8 @@ export default function Dashboard() {
                   : "border-slate-800 bg-slate-950 text-slate-400 hover:text-slate-200"
               }`}
             >
-              <Mail className="h-3.5 w-3.5" />
-              <span>Has Email</span>
-            </button>
-
-            <button
-              onClick={() => setOnlyWithPhone(!onlyWithPhone)}
-              className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors ${
-                onlyWithPhone
-                  ? "border-emerald-500 bg-emerald-500/20 text-emerald-300 font-semibold"
-                  : "border-slate-800 bg-slate-950 text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              <Phone className="h-3.5 w-3.5" />
-              <span>Has Phone</span>
+              <LinkedInIcon className="h-3.5 w-3.5" />
+              <span>Has LinkedIn Profile</span>
             </button>
 
             {/* State filter dropdown */}
@@ -556,16 +520,12 @@ export default function Dashboard() {
 
             {/* Reset all filters */}
             {(searchQuery ||
-              tierFilter !== "ALL" ||
               onlyWithEmail ||
-              onlyWithPhone ||
               stateFilter !== "ALL") && (
               <button
                 onClick={() => {
                   setSearchQuery("");
-                  setTierFilter("ALL");
                   setOnlyWithEmail(false);
-                  setOnlyWithPhone(false);
                   setStateFilter("ALL");
                 }}
                 className="text-xs text-indigo-400 hover:underline px-2"
@@ -599,14 +559,6 @@ export default function Dashboard() {
             </button>
 
             <button
-              onClick={() => setIsEmailModalOpen(true)}
-              className="flex items-center gap-1.5 rounded-lg border border-indigo-400/40 bg-indigo-500/20 px-3 py-1.5 text-xs font-semibold text-indigo-200 hover:bg-indigo-500/30 transition-colors"
-            >
-              <Mail className="h-3.5 w-3.5" />
-              <span>Copy Selected Emails ({selectedEmails.length})</span>
-            </button>
-
-            <button
               onClick={() => setSelectedLeadIds(new Set())}
               className="text-xs text-slate-400 hover:text-white px-2"
             >
@@ -632,12 +584,10 @@ export default function Dashboard() {
                   />
                 </th>
                 <th className="py-3.5 px-3">Company Name</th>
-                <th className="py-3.5 px-3">Lead Tier</th>
-                <th className="py-3.5 px-3">Official Website</th>
-                <th className="py-3.5 px-3">Verified Contact Email</th>
-                <th className="py-3.5 px-3">Verified Phone</th>
-                <th className="py-3.5 px-3 text-center">Confidence</th>
-                <th className="py-3.5 px-3">Discovery Sources</th>
+                <th className="py-3.5 px-3">Website</th>
+                <th className="py-3.5 px-3">Company LinkedIn</th>
+                <th className="py-3.5 px-3">Decision Maker</th>
+                <th className="py-3.5 px-3">Decision Maker LinkedIn</th>
                 <th className="py-3.5 pr-4 pl-3 text-right">Action</th>
               </tr>
             </thead>
@@ -646,7 +596,7 @@ export default function Dashboard() {
             <tbody className="divide-y divide-slate-800/60">
               {isLoading ? (
                 <tr>
-                  <td colSpan={9} className="py-20 text-center text-slate-400">
+                  <td colSpan={7} className="py-20 text-center text-slate-400">
                     <div className="flex flex-col items-center justify-center gap-3">
                       <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
                       <p className="font-medium text-slate-300">Loading discovered company leads...</p>
@@ -655,14 +605,14 @@ export default function Dashboard() {
                 </tr>
               ) : leads.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-20 text-center text-slate-400">
+                  <td colSpan={7} className="py-20 text-center text-slate-400">
                     <div className="flex flex-col items-center justify-center gap-3">
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-800/60 text-slate-500">
                         <Building2 className="h-6 w-6" />
                       </div>
                       <p className="font-semibold text-slate-200 text-sm">No companies match this filter</p>
                       <p className="text-xs text-slate-500 max-w-sm">
-                        Try clearing active search queries or click "Run Test Cases" to discover fresh leads.
+                        Try clearing active search queries or click "Run Discovery Pipeline" to find fresh leads.
                       </p>
                       <button
                         onClick={() => setIsRunModalOpen(true)}
@@ -677,10 +627,9 @@ export default function Dashboard() {
               ) : (
                 leads.map((lead, idx) => {
                   const isSelected = selectedLeadIds.has(lead.company_name);
-                  const isFull = lead.lead_tier === "FULL_LEAD";
-                  const isWeb = lead.lead_tier === "WEBSITE_ONLY";
-                  const isReview = lead.status === "NEEDS_REVIEW";
-                  const conf = Number(lead.confidence || 0);
+                  const companyLi = lead.company_linkedin_url || lead.linkedin;
+                  const dmLarge = lead.decision_maker_linkedin_url;
+                  const dmName = lead.decision_maker_name || lead.owner_name;
 
                   return (
                     <tr
@@ -699,121 +648,85 @@ export default function Dashboard() {
                         />
                       </td>
 
-                      {/* Company Name & Location */}
+                      {/* 1. Company Name */}
                       <td className="py-3.5 px-3">
                         <div className="font-bold text-slate-100 group-hover:text-indigo-300 transition-colors flex items-center gap-2">
                           <span>{lead.company_name}</span>
                         </div>
-                        <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-slate-400">
-                          <MapPin className="h-3 w-3 text-slate-500" />
-                          <span>{lead.location || "US"}</span>
-                        </div>
-                      </td>
-
-                      {/* Lead Tier Badge */}
-                      <td className="py-3.5 px-3">
-                        {isFull ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-bold text-emerald-400 border border-emerald-500/30">
-                            <Sparkles className="h-3 w-3" /> FULL LEAD
-                          </span>
-                        ) : isWeb ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-2.5 py-0.5 text-[11px] font-bold text-sky-400 border border-sky-500/30">
-                            <Globe className="h-3 w-3" /> WEBSITE ONLY
-                          </span>
-                        ) : isReview ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[11px] font-bold text-amber-400 border border-amber-500/30">
-                            <ShieldAlert className="h-3 w-3" /> REVIEW
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-medium text-slate-400 border border-slate-700">
-                            UNRESOLVED
-                          </span>
+                        {lead.location && (
+                          <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-slate-400">
+                            <MapPin className="h-3 w-3 text-slate-500" />
+                            <span>{lead.location}</span>
+                          </div>
                         )}
                       </td>
 
-                      {/* Official Website */}
+                      {/* 2. Website */}
                       <td className="py-3.5 px-3">
                         {lead.website ? (
                           <a
-                            href={lead.website}
+                            href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 font-semibold text-indigo-400 hover:underline max-w-[200px] truncate"
+                            className="inline-flex items-center gap-1.5 font-semibold text-indigo-400 hover:text-indigo-300 hover:underline max-w-[200px] truncate"
                           >
+                            <Globe className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
                             <span>{lead.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}</span>
-                            <ExternalLink className="h-3 w-3 shrink-0" />
+                            <ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
                           </a>
                         ) : (
                           <span className="text-slate-600 italic">—</span>
                         )}
                       </td>
 
-                      {/* Verified Email */}
+                      {/* 3. Company LinkedIn */}
                       <td className="py-3.5 px-3">
-                        {lead.email ? (
-                          <div className="flex items-center gap-1.5">
-                            <a
-                              href={`mailto:${lead.email}`}
-                              className="font-medium text-slate-200 hover:text-indigo-300 hover:underline truncate max-w-[180px]"
-                            >
-                              {lead.email}
-                            </a>
-                            <button
-                              onClick={() => {
-                                navigator.clipboard.writeText(lead.email);
-                                showNotification(`Copied: ${lead.email}`);
-                              }}
-                              title="Copy email address"
-                              className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-white transition-opacity"
-                            >
-                              <Copy className="h-3 w-3" />
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-slate-600 italic">—</span>
-                        )}
-                      </td>
-
-                      {/* Verified Phone */}
-                      <td className="py-3.5 px-3">
-                        {lead.phone ? (
+                        {companyLi ? (
                           <a
-                            href={`tel:${lead.phone}`}
-                            className="font-medium text-slate-300 hover:text-emerald-300 whitespace-nowrap"
+                            href={companyLi.startsWith("http") ? companyLi : `https://${companyLi}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2.5 py-1 text-[11px] font-semibold text-sky-400 hover:bg-sky-500/20 hover:text-sky-300 transition-all max-w-[180px] truncate"
                           >
-                            {lead.phone}
+                            <LinkedInIcon className="h-3.5 w-3.5 shrink-0 text-sky-400" />
+                            <span className="truncate">{companyLi.replace(/^https?:\/\/(www\.)?linkedin\.com\/company\//, "").replace(/\/$/, "") || "Company Page"}</span>
+                            <ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
                           </a>
                         ) : (
                           <span className="text-slate-600 italic">—</span>
                         )}
                       </td>
 
-                      {/* Confidence Score Bar */}
-                      <td className="py-3.5 px-3 text-center">
-                        <div className="flex flex-col items-center gap-1">
-                          <span className="font-mono text-[11px] font-bold text-slate-300">
-                            {(conf * 100).toFixed(0)}%
-                          </span>
-                          <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-800">
-                            <div
-                              className={`h-full ${
-                                conf >= 0.9
-                                  ? "bg-emerald-400"
-                                  : conf >= 0.6
-                                  ? "bg-amber-400"
-                                  : "bg-slate-600"
-                              }`}
-                              style={{ width: `${conf * 100}%` }}
-                            />
+                      {/* 4. Decision Maker Name (Optional) */}
+                      <td className="py-3.5 px-3">
+                        {dmName ? (
+                          <div className="flex items-center gap-1.5">
+                            <Users className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                            <span className="font-medium text-slate-200 truncate max-w-[170px]">
+                              {dmName}
+                            </span>
                           </div>
-                        </div>
+                        ) : (
+                          <span className="text-slate-500 italic text-[11px]">Not resolved</span>
+                        )}
                       </td>
 
-                      {/* Sources */}
+                      {/* 5. Decision Maker LinkedIn */}
                       <td className="py-3.5 px-3">
-                        <span className="rounded bg-slate-800/80 px-2 py-0.5 text-[10px] font-medium text-slate-300 border border-slate-700/60 truncate max-w-[140px] inline-block">
-                          {lead.source || "FMCSA"}
-                        </span>
+                        {dmLarge ? (
+                          <a
+                            href={dmLarge.startsWith("http") ? dmLarge : `https://${dmLarge}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-1 text-[11px] font-semibold text-indigo-300 hover:bg-indigo-500/20 hover:text-indigo-200 transition-all max-w-[200px] truncate"
+                          >
+                            <LinkedInIcon className="h-3.5 w-3.5 shrink-0 text-indigo-400" />
+                            <span className="truncate">{dmLarge.replace(/^https?:\/\/(www\.)?linkedin\.com\/in\//, "").replace(/\/$/, "") || "Profile URL"}</span>
+                            <ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
+                          </a>
+                        ) : (
+                          <span className="text-slate-600 italic">—</span>
+                        )}
                       </td>
 
                       {/* Action */}
@@ -866,12 +779,6 @@ export default function Dashboard() {
         lead={inspectedLead}
         isOpen={Boolean(inspectedLead)}
         onClose={() => setInspectedLead(null)}
-      />
-
-      <EmailExportModal
-        isOpen={isEmailModalOpen}
-        onClose={() => setIsEmailModalOpen(false)}
-        emails={selectedEmails}
       />
     </div>
   );

@@ -69,23 +69,14 @@ export const leadsApi = {
 
     const cleanName = filename || `Prokizen_Leads_${new Date().toISOString().slice(0, 10)}.xlsx`;
 
-    // Map clean tabular data
+    // Map clean tabular data matching the 5 required parameters
     const tableData = leads.map((lead, idx) => ({
       "#": idx + 1,
       "Company Name": lead.company_name || "",
-      "Location": lead.location || "",
-      "Lead Tier": lead.lead_tier || lead.status || "",
-      "Verification Status": lead.status || "",
-      "Official Website": lead.website || "",
-      "Verified Email": lead.email || "",
-      "Verified Phone": lead.phone || "",
-      "Confidence Score": lead.confidence !== undefined ? Number(lead.confidence).toFixed(2) : "",
-      "Source Providers": lead.source || "",
-      "Status Reason": lead.status_reason || "",
-      "Email Source URL": lead.email_source || "",
-      "Phone Source URL": lead.phone_source || "",
-      "Runtime (sec)": lead.elapsed_seconds || 0,
-      "Discovered At": lead.created_at || "",
+      "Website": lead.website || "",
+      "Company LinkedIn": lead.company_linkedin_url || lead.linkedin || "",
+      "Decision Maker Name": lead.decision_maker_name || lead.owner_name || "",
+      "Decision Maker LinkedIn": lead.decision_maker_linkedin_url || "",
     }));
 
     const wb = XLSX.utils.book_new();
@@ -97,19 +88,10 @@ export const leadsApi = {
     const colWidths = [
       { wch: 4 },  // #
       { wch: 32 }, // Company Name
-      { wch: 18 }, // Location
-      { wch: 16 }, // Lead Tier
-      { wch: 18 }, // Verification Status
-      { wch: 32 }, // Official Website
-      { wch: 28 }, // Verified Email
-      { wch: 20 }, // Verified Phone
-      { wch: 16 }, // Confidence
-      { wch: 20 }, // Sources
-      { wch: 45 }, // Status Reason
-      { wch: 35 }, // Email Source
-      { wch: 35 }, // Phone Source
-      { wch: 14 }, // Runtime
-      { wch: 22 }, // Date
+      { wch: 32 }, // Website
+      { wch: 36 }, // Company LinkedIn
+      { wch: 28 }, // Decision Maker Name
+      { wch: 38 }, // Decision Maker LinkedIn
     ];
     ws["!cols"] = colWidths;
 

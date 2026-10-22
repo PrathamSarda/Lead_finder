@@ -40,7 +40,7 @@ const PRESET_COUNTS = [
 export default function RunModal({ isOpen, onClose, onRunComplete }) {
   const [count, setCount] = useState(10);
   const [selectedState, setSelectedState] = useState("");
-  const [mode, setMode] = useState("discovery"); // 'discovery' | 'test_batch'
+  const [mode, setMode] = useState("bookkeeping"); // 'bookkeeping' | 'discovery' | 'test_batch'
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [runState, setRunState] = useState({
     status: "idle",
@@ -171,9 +171,27 @@ export default function RunModal({ isOpen, onClose, onRunComplete }) {
             {/* Mode Selector */}
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                Discovery Mode
+                Pipeline Mode
               </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setMode("bookkeeping")}
+                  className={`flex flex-col text-left p-3.5 rounded-xl border transition-all ${
+                    mode === "bookkeeping"
+                      ? "border-emerald-500 bg-emerald-500/15 text-white shadow-sm shadow-emerald-500/20"
+                      : "border-slate-800 bg-slate-950/50 text-slate-400 hover:border-slate-700 hover:text-slate-200"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 font-semibold text-sm">
+                    <Sparkles className="h-4 w-4 text-emerald-400" />
+                    <span>Bookkeeping Intent</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Finds small businesses (&lt;20 staff) actively hiring financial roles, expanding, or needing bookkeeping.
+                  </p>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setMode("discovery")}
@@ -185,10 +203,10 @@ export default function RunModal({ isOpen, onClose, onRunComplete }) {
                 >
                   <div className="flex items-center gap-2 font-semibold text-sm">
                     <Globe className="h-4 w-4 text-indigo-400" />
-                    <span>Live FMCSA Discovery</span>
+                    <span>FMCSA Registry</span>
                   </div>
                   <p className="mt-1 text-xs text-slate-400">
-                    Queries active US small companies from registry, resolves official domains, and scrapes verified emails.
+                    Discovers US small logistics companies from the federal registry.
                   </p>
                 </button>
 
@@ -202,11 +220,11 @@ export default function RunModal({ isOpen, onClose, onRunComplete }) {
                   }`}
                 >
                   <div className="flex items-center gap-2 font-semibold text-sm">
-                    <Sparkles className="h-4 w-4 text-purple-400" />
-                    <span>Curated Test Benchmark</span>
+                    <Zap className="h-4 w-4 text-purple-400" />
+                    <span>Test Benchmark</span>
                   </div>
                   <p className="mt-1 text-xs text-slate-400">
-                    Fast automated test suite across benchmark companies for instant verification benchmarking.
+                    Fast automated test benchmark across curated companies.
                   </p>
                 </button>
               </div>
