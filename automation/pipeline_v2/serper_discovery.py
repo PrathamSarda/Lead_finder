@@ -222,7 +222,7 @@ class SerperMapsDiscovery:
                     address=p.get("address"),
                     rating=float(p.get("rating", 0.0)) if p.get("rating") else None,
                     reviews=int(p.get("reviewsCount") or p.get("reviews", 0)) if (p.get("reviewsCount") or p.get("reviews")) else None,
-                    category=p.get("category"),
+                    category=p.get("category") or p.get("type") or (p.get("types")[0] if p.get("types") else None),
                     cid=p.get("cid"),
                 )
             )

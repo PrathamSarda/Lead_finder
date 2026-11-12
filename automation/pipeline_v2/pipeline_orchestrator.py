@@ -68,6 +68,8 @@ class QualifiedB2BLead:
     has_recent_linkedin_post: bool = False
     intent_source: str = "None"
     indeed_job_url: str | None = None
+    job_post_url: str | None = None
+    company_type: str | None = None
     region: str = "US"
     after_date: str | None = None
 
@@ -75,6 +77,7 @@ class QualifiedB2BLead:
 # Minimal client-facing export schema
 CLIENT_LEADS_FIELDNAMES = [
     "company_name",
+    "company_type",
     "region",
     "employee_count",
     "phone",
@@ -88,6 +91,7 @@ CLIENT_LEADS_FIELDNAMES = [
     "intent_found",
     "intent_source",
     "ai_intent_reason",
+    "job_post_url",
     "indeed_job_url",
     "company_linkedin_url",
     "has_recent_linkedin_post",
@@ -106,6 +110,7 @@ PIPELINE_V2_FIELDNAMES = [
     "phone",
     "address",
     "category",
+    "company_type",
     "employee_count",
     "employee_range",
     "passed_size_gate",
@@ -113,6 +118,7 @@ PIPELINE_V2_FIELDNAMES = [
     "intent_source",
     "ai_intent_reason",
     "ai_model_used",
+    "job_post_url",
     "indeed_job_url",
     "company_linkedin_url",
     "has_recent_linkedin_post",
@@ -282,45 +288,66 @@ class MultiToolLeadPipeline:
         discovered: list[DiscoveredBusiness] = []
         job_intent_map: dict[str, HiringIntentLeadCandidate] = {}
 
-        if candidate_source == "jobs":
-            # Primary Fast Discovery: Scan public Indeed & LinkedIn job listings for companies
-            # actively seeking bookkeeping, QuickBooks, or payroll services (100% intent from step 1!).
-            print(f"\n[Step 1/7] Inverting discovery: Searching live Indeed & LinkedIn job postings for companies hiring bookkeeping services...")
-            if progress_callback:
-                progress_callback({"step": "Scanning live LinkedIn & Indeed job postings for bookkeeping intent", "processed": 0, "total": target_count, "company": None, "verified": 0})
-            
-            job_leads = self.job_discovery.discover_hiring_companies(
-                query=query,
-                limit=candidate_limit,
-                region=reg_upper,
-                after_date=after_date,
-                city=city,
-                state=state,
-            )
+        def _fetch_candidates_batch(round_num: int) -> list[DiscoveredBusiness]:
+            batch_discovered: list[DiscoveredBusiness] = []
+            if candidate_source == "jobs":
+                print(f"\n[Search Round {round_num}] Searching job postings on LinkedIn, Indeed, Monster, and ZipRecruiter...")
+                if progress_callback:
+                    progress_callback({
+                        "step": f"Searching job postings (Round {round_num}): LinkedIn, Indeed, Monster, ZipRecruiter",
+                        "processed": processed_candidates,
+                        "total": target_count,
+                        "company": None,
+                        "verified": sum(1 for lead in qualified_leads if lead.pipeline_status == "QUALIFIED_CONVERTIBLE"),
+                    })
 
-            for jl in job_leads:
-                c_norm = jl.company_name.strip()
-                job_intent_map[c_norm.lower()] = jl
-                discovered.append(
-                    DiscoveredBusiness(
-                        title=jl.company_name,
-                        domain=jl.domain,
-                        website=jl.website,
-                        phone=jl.phone,
-                        address=jl.address,
-                        category="Hiring for Bookkeeping / Accounting",
-                    )
+                job_leads = self.job_discovery.discover_hiring_companies(
+                    query=query,
+                    limit=max(target_count * 15, 60),
+                    region=reg_upper,
+                    after_date=after_date,
+                    city=city,
+                    state=state,
                 )
 
-            print(f"-> Found {len(discovered)} companies actively posting bookkeeping requirements on Indeed/LinkedIn.")
+                for jl in job_leads:
+                    c_norm = jl.company_name.strip()
+                    job_intent_map[c_norm.lower()] = jl
+                    batch_discovered.append(
+                        DiscoveredBusiness(
+                            title=jl.company_name,
+                            domain=jl.domain,
+                            website=jl.website,
+                            phone=jl.phone,
+                            address=jl.address,
+                            category="Hiring for Bookkeeping / Accounting",
+                        )
+                    )
 
-            # Secondary fallback: If job search returned fewer candidates than target_count, augment with local maps
-            if len(discovered) < target_count * 2:
-                print(f"-> Augmenting with local SMB candidates from region '{reg_upper}'...")
+                # Augment with local directory / maps if initial round returned few
+                if len(batch_discovered) < target_count * 2:
+                    print(f"-> Augmenting round {round_num} with local SMB candidates from region '{reg_upper}'...")
+                    if reg_upper == "US" and not city and not state:
+                        fmcsa_companies = FMCSAConnector().search_candidates(SearchFilters(max_results=target_count * 4, state=state, city=city))
+                        for company in fmcsa_companies:
+                            batch_discovered.append(
+                                DiscoveredBusiness(
+                                    title=company.company_name,
+                                    domain=None,
+                                    website=None,
+                                    phone=company.contact_phone,
+                                    address=company.location,
+                                    category=company.industry,
+                                )
+                            )
+                    else:
+                        extra_maps = self.discovery.discover(limit=target_count * 4, region=reg_upper)
+                        batch_discovered.extend(extra_maps)
+            else:
                 if reg_upper == "US" and not city and not state:
-                    fmcsa_companies = FMCSAConnector().search_candidates(SearchFilters(max_results=target_count * 5, state=state, city=city))
+                    fmcsa_companies = FMCSAConnector().search_candidates(SearchFilters(max_results=candidate_limit, state=state, city=city))
                     for company in fmcsa_companies:
-                        discovered.append(
+                        batch_discovered.append(
                             DiscoveredBusiness(
                                 title=company.company_name,
                                 domain=None,
@@ -331,54 +358,68 @@ class MultiToolLeadPipeline:
                             )
                         )
                 else:
-                    extra_maps = self.discovery.discover(limit=target_count * 5, region=reg_upper)
-                    discovered.extend(extra_maps)
-        else:
-            # Legacy / Direct Maps or FMCSA candidate discovery
-            if reg_upper == "US" and not city and not state:
-                print(f"\n[Step 1/7] Loading active US FMCSA carrier records...")
-                fmcsa_companies = FMCSAConnector().search_candidates(SearchFilters(max_results=candidate_limit, state=state, city=city))
-                discovered = [
-                    DiscoveredBusiness(
-                        title=company.company_name,
-                        domain=None,
-                        website=None,
-                        phone=company.contact_phone,
-                        address=company.location,
-                        category=company.industry,
-                    )
-                    for company in fmcsa_companies
-                ]
-            else:
-                print(f"\n[Step 1/7] Discovering SMB candidates in region '{reg_upper}'" + (f" ({location})" if location else "") + " via Google Maps...")
-                discovery_query = f"{query} in {location}" if location else None
-                discovered = self.discovery.discover(query=discovery_query, limit=candidate_limit, region=reg_upper)
-                if not discovered:
-                    discovered = self.discovery.discover(limit=candidate_limit, region=reg_upper)
+                    discovery_query = f"{query} in {location}" if location else None
+                    batch_discovered = self.discovery.discover(query=discovery_query, limit=candidate_limit, region=reg_upper)
+                    if not batch_discovered:
+                        batch_discovered = self.discovery.discover(limit=candidate_limit, region=reg_upper)
+            return batch_discovered
 
-        print(f"-> Total candidate pool ready for enrichment: {len(discovered)} companies.")
-        if progress_callback:
-            progress_callback({"step": f"Candidate pool loaded ({len(discovered)} companies); enriching verified leads", "processed": 0, "total": len(discovered), "company": None, "verified": 0})
+        search_round = 1
+        max_search_rounds = 6
 
-        for index, biz in enumerate(discovered, start=1):
+        discovered = _fetch_candidates_batch(search_round)
+        print(f"-> Initial candidate pool ready for enrichment: {len(discovered)} companies.")
+
+        while True:
             convertible_count = sum(1 for lead in qualified_leads if lead.pipeline_status == "QUALIFIED_CONVERTIBLE")
             if convertible_count >= target_count:
+                print(f"\n[Target Reached] Successfully acquired {convertible_count}/{target_count} qualified leads!")
                 break
-            processed_candidates = index
-            comp_identifier = (biz.domain or biz.title).strip().lower()
-            if comp_identifier in evaluated_candidates_set:
-                continue
+
+            # Find next unprocessed candidate in discovered list
+            next_cand: DiscoveredBusiness | None = None
+            while discovered:
+                cand = discovered.pop(0)
+                processed_candidates += 1
+                comp_identifier = (cand.domain or cand.title).strip().lower()
+                if comp_identifier in evaluated_candidates_set:
+                    continue
+                evaluated_candidates_set.add(comp_identifier)
+                next_cand = cand
+                break
+
+            # If current batch exhausted but still need leads, fetch next round!
+            if not next_cand:
+                if search_round < max_search_rounds and convertible_count < target_count:
+                    search_round += 1
+                    print(f"\n[Expanding Search] Need {target_count - convertible_count} more leads. Running search round {search_round}/{max_search_rounds} across LinkedIn, Indeed, Monster, and ZipRecruiter...")
+                    fresh_batch = _fetch_candidates_batch(search_round)
+                    # Filter out already evaluated
+                    fresh_candidates = [
+                        c for c in fresh_batch
+                        if (c.domain or c.title).strip().lower() not in evaluated_candidates_set
+                    ]
+                    if fresh_candidates:
+                        discovered.extend(fresh_candidates)
+                        print(f"-> Discovered {len(fresh_candidates)} fresh candidates for round {search_round}.")
+                        continue
+                    else:
+                        print("-> No additional distinct candidates found in this round.")
+                # If cannot find more after max rounds, break
+                break
+
+            biz = next_cand
             evaluated_candidates_set.add(comp_identifier)
 
-            # Database Deduplication / 18-Day Cooldown Check
-            if self.db.is_recent_duplicate(biz.title, domain=biz.domain, cooldown_days=self.cooldown_days):
-                print(f"  [SKIPPED - RECENT RUN] '{biz.title}' was processed within the last {self.cooldown_days} days. Keeping outreach fresh.")
+            # Database Deduplication / 18-Day Cooldown Check (Guarantees fresh, uncontacted companies)
+            if self.db.is_recent_duplicate(biz.title, domain=biz.domain, cooldown_days=self.cooldown_days, only_qualified=True):
+                print(f"  [SKIPPED - PREVIOUSLY QUALIFIED] '{biz.title}' was already qualified in the last {self.cooldown_days} days. Keeping outreach fresh.")
                 continue
 
-            print(f"\n[Evaluating: {len(qualified_leads)}/{target_count}] {biz.title}")
+            print(f"\n[Evaluating: {convertible_count}/{target_count} qualified | Candidate #{processed_candidates}] {biz.title}")
             candidate_reg = self._detect_candidate_region(biz.address, active_regions)
             if progress_callback:
-                progress_callback({"step": f"Resolving website and phone [{index}/{len(discovered)}]", "processed": index - 1, "total": len(discovered), "company": biz.title, "verified": convertible_count})
+                progress_callback({"step": f"Resolving website and phone for {biz.title}", "processed": processed_candidates, "total": target_count, "company": biz.title, "verified": convertible_count})
 
             # FMCSA is the record source; Maps is used only to enrich phone, address and website.
             print("  [Step 2/7] Enriching FMCSA record with Google Maps...")
@@ -396,7 +437,7 @@ class MultiToolLeadPipeline:
             # Step 2: Retrieve Official Verified Company LinkedIn
             print("  [Step 3/7] Retrieving official Company LinkedIn profile via Serper...")
             if progress_callback:
-                progress_callback({"step": "Finding company LinkedIn page with Serper", "processed": index - 1, "total": len(discovered), "company": biz.title, "verified": convertible_count})
+                progress_callback({"step": f"Finding LinkedIn page for {biz.title}", "processed": processed_candidates, "total": target_count, "company": biz.title, "verified": convertible_count})
             target_domain = biz.domain or (biz.website.split("/")[2] if biz.website else None)
             real_company_li = self.linkedin_retriever._find_company_linkedin(biz.title, target_domain)
 
@@ -432,7 +473,7 @@ class MultiToolLeadPipeline:
             # Step 3: Extract recent posts & employee qualification for verified company
             print("  [Step 4/7] Checking LinkedIn headcount and extracting recent posts...")
             if progress_callback:
-                progress_callback({"step": "Checking LinkedIn employee count and recent posts with Apify", "processed": index - 1, "total": len(discovered), "company": biz.title, "verified": convertible_count})
+                progress_callback({"step": f"Checking employee count & posts for {biz.title}", "processed": processed_candidates, "total": target_count, "company": biz.title, "verified": convertible_count})
             try:
                 li_profile = self.apify.qualify_and_extract_posts(biz.title, domain=target_domain, linkedin_url=real_company_li)
             except Exception as exc:
@@ -519,6 +560,7 @@ class MultiToolLeadPipeline:
             intent_source = "None"
             intent_reason = ""
             indeed_job_url = None
+            job_post_url = None
             has_recent_post = False
             ai_model_used = "none"
 
@@ -529,6 +571,7 @@ class MultiToolLeadPipeline:
                 intent_confirmed = True
                 intent_source = job_cand.source
                 intent_reason = f"Active job posting: {job_cand.job_title}"
+                job_post_url = job_cand.job_url
                 if job_cand.source == "Indeed":
                     indeed_job_url = job_cand.job_url
                 ai_model_used = f"direct_{job_cand.source.lower()}_hiring_match"
@@ -540,7 +583,7 @@ class MultiToolLeadPipeline:
                 if recent_posts:
                     print(f"    Evaluating {len(recent_posts)} recent company LinkedIn post(s)...")
                     if progress_callback:
-                        progress_callback({"step": "Evaluating company LinkedIn posts for bookkeeping intent", "processed": index - 1, "total": len(discovered), "company": biz.title, "verified": convertible_count})
+                        progress_callback({"step": f"Evaluating LinkedIn posts for {biz.title}", "processed": processed_candidates, "total": target_count, "company": biz.title, "verified": convertible_count})
                     intent_result = self.intent.analyze(biz.title, recent_posts, target_niche=query)
                     if intent_result.intent_found:
                         intent_confirmed = True
@@ -554,7 +597,7 @@ class MultiToolLeadPipeline:
             if not intent_confirmed:
                 print(f"    LinkedIn activity did not confirm bookkeeping services. Checking Indeed ({reg_upper}) job postings...")
                 if progress_callback:
-                    progress_callback({"step": "Checking Indeed for bookkeeping job postings", "processed": index - 1, "total": len(discovered), "company": biz.title, "verified": convertible_count})
+                    progress_callback({"step": f"Checking Indeed jobs for {biz.title}", "processed": processed_candidates, "total": target_count, "company": biz.title, "verified": convertible_count})
                 indeed_result = self.indeed_checker.check_company(
                     company_name=biz.title,
                     domain=target_domain,
@@ -567,6 +610,7 @@ class MultiToolLeadPipeline:
                     intent_source = "Indeed"
                     intent_reason = indeed_result.reason
                     indeed_job_url = indeed_result.job_url
+                    job_post_url = indeed_result.job_url
                     ai_model_used = "indeed_job_intelligence"
                     print(f"    [INDEED INTENT CONFIRMED] {indeed_result.reason}")
 
@@ -625,7 +669,7 @@ class MultiToolLeadPipeline:
             # Step 5: Contact Email Retrieval (Company Email & Decision Maker Email)
             print("  [Step 6/7] Retrieving Company Email and Decision-Maker Email...")
             if progress_callback:
-                progress_callback({"step": "Retrieving company & decision-maker emails", "processed": index - 1, "total": len(discovered), "company": biz.title, "verified": convertible_count})
+                progress_callback({"step": f"Retrieving emails for {biz.title}", "processed": processed_candidates, "total": target_count, "company": biz.title, "verified": convertible_count})
 
             # A. Retrieve Official Company Email (Minimum requirement)
             company_email: str | None = None
@@ -707,6 +751,8 @@ class MultiToolLeadPipeline:
                         has_recent_linkedin_post=has_recent_post,
                         intent_source=intent_source,
                         indeed_job_url=indeed_job_url,
+                        job_post_url=job_post_url,
+                        company_type=biz.category,
                         region=candidate_reg,
                         after_date=after_date,
                     )
@@ -715,6 +761,8 @@ class MultiToolLeadPipeline:
 
             # Minimum company email requirement satisfied!
             print(f"  [QUALIFIED LEAD - {intent_source.upper()} CONFIRMED] {biz.title}")
+            print(f"    - Type/Industry    : {biz.category or 'Small Business'}")
+            print(f"    - Job Post Link    : {job_post_url or indeed_job_url or 'N/A'}")
             print(f"    - Region           : {candidate_reg}")
             print(f"    - Company Email    : {company_email} ({company_email_source}) [REQUIRED MINIMUM MET]")
             print(f"    - Decision Maker   : {dm_name or 'N/A'} ({dm_title or 'Leadership'})")
@@ -753,6 +801,7 @@ class MultiToolLeadPipeline:
                     phone=biz.phone,
                     address=biz.address,
                     category=biz.category,
+                    company_type=biz.category,
                     employee_count=li_profile.employee_count,
                     employee_range=li_profile.employee_range,
                     passed_size_gate=True,
@@ -775,6 +824,7 @@ class MultiToolLeadPipeline:
                     has_recent_linkedin_post=has_recent_post,
                     intent_source=intent_source,
                     indeed_job_url=indeed_job_url,
+                    job_post_url=job_post_url,
                     region=candidate_reg,
                     after_date=after_date,
                 )

@@ -59,6 +59,14 @@ export const leadsApi = {
   },
 
   /**
+   * Clear pipeline logs and reset state
+   */
+  clearLogs: async () => {
+    const res = await apiClient.post("/leads/run/logs/clear");
+    return res.data;
+  },
+
+  /**
    * Direct backend download link for Excel
    */
   getBackendExcelUrl: (params = {}) => {

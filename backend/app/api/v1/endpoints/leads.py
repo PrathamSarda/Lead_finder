@@ -187,6 +187,8 @@ def parse_csv_lead(row: Dict[str, str], source_file: str) -> Dict[str, Any]:
     intent_raw = str(row.get("intent_found", "")).strip().lower()
     intent_source = (row.get("intent_source") or row.get("Intent Source") or "").strip()
     indeed_job_url = (row.get("indeed_job_url") or row.get("Indeed Job URL") or "").strip()
+    job_post_url = (row.get("job_post_url") or row.get("Job Post URL") or indeed_job_url or "").strip()
+    company_type = (row.get("company_type") or row.get("Company Type") or row.get("category") or "").strip()
 
     if intent_raw in {"true", "1", "yes"}:
         intent_status = f"CONFIRMED ({intent_source})" if intent_source and intent_source != "None" else "CONFIRMED"
@@ -283,6 +285,8 @@ def parse_csv_lead(row: Dict[str, str], source_file: str) -> Dict[str, Any]:
         "after_date": after_date,
         "intent_source": intent_source,
         "indeed_job_url": indeed_job_url,
+        "job_post_url": job_post_url,
+        "company_type": company_type or "Small Business",
     }
 
 
@@ -813,8 +817,28 @@ def cancel_run() -> Dict[str, Any]:
     """Signal the active pipeline run to terminate safely."""
     global RUN_CANCEL_FLAG
     RUN_CANCEL_FLAG = True
-    add_log("Cancel request received. Stopping after current company...")
-    return {"message": "Cancellation flag set."}
+    add_log("Cancel request received. Stopping pipeline...")
+    with RUN_STATE_LOCK:
+        if run_state["status"] == "running":
+            run_state["status"] = "idle"
+            run_state["current_step"] = "Stopped by user"
+    return {"message": "Cancellation flag set and status reset."}
+
+
+@router.post("/run/logs/clear")
+def clear_run_logs() -> Dict[str, Any]:
+    """Clear terminal logs and reset idle/completed counters."""
+    with RUN_STATE_LOCK:
+        run_state["logs"] = []
+        if run_state["status"] != "running":
+            run_state["status"] = "idle"
+            run_state["current_step"] = "Idle"
+            run_state["processed_count"] = 0
+            run_state["verified_count"] = 0
+            run_state["full_lead_count"] = 0
+            run_state["current_company"] = None
+            run_state["error"] = None
+    return {"message": "Logs cleared successfully."}
 
 
 @router.get("/export/excel")

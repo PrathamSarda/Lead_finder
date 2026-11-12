@@ -1,3 +1,0 @@
-company_name,location,status,website,email,phone,confidence,source,elapsed_seconds,created_at
-GLEN DYER,"MOBILE, AL",QUALIFIED,http://glenndyer.com/,,,0.9,ddgs,9.75,2026-10-16T10:59:08.148199
-CHEROKEE CULVERT COMPANY INC,"MACON, GA",QUALIFIED,https://cherokeeculvert.com/,cherokeeculvert@att.net,+14782144236,1.0,"ddgs, enrichment",7.19,2026-10-16T10:59:15.334990

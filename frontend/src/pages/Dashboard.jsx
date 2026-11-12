@@ -837,12 +837,20 @@ export default function Dashboard() {
                             {regCode === "US" ? "🇺🇸 US" : regCode === "UK" ? "🇬🇧 UK" : regCode === "AU" ? "🇦🇺 AU" : regCode === "CA" ? "🇨🇦 CA" : regCode}
                           </span>
                         </div>
-                        {lead.location && (
-                          <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-slate-400">
-                            <MapPin className="h-3 w-3 text-slate-500" />
-                            <span>{lead.location}</span>
-                          </div>
-                        )}
+                        <div className="flex flex-wrap items-center gap-2 mt-1">
+                          {lead.company_type && lead.company_type !== "None" && (
+                            <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-300 border border-amber-500/20">
+                              <Briefcase className="h-2.5 w-2.5 text-amber-400" />
+                              <span className="truncate max-w-[150px]">{lead.company_type}</span>
+                            </span>
+                          )}
+                          {lead.location && (
+                            <div className="flex items-center gap-1 text-[11px] text-slate-400">
+                              <MapPin className="h-3 w-3 text-slate-500" />
+                              <span>{lead.location}</span>
+                            </div>
+                          )}
+                        </div>
                       </td>
 
                       {/* Employees (10-15) */}
@@ -909,14 +917,14 @@ export default function Dashboard() {
                               {lead.intent_reason}
                             </span>
                           )}
-                          {lead.indeed_job_url && (
+                          {(lead.job_post_url || lead.indeed_job_url) && (
                             <a
-                              href={lead.indeed_job_url}
+                              href={lead.job_post_url || lead.indeed_job_url}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-400 hover:text-purple-300 hover:underline"
                             >
-                              <span>View Indeed Job Posting</span>
+                              <span>View {lead.intent_source || "Live"} Job Posting</span>
                               <ExternalLink className="h-2.5 w-2.5" />
                             </a>
                           )}

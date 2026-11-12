@@ -1,6 +1,0 @@
-company_name,location,status,website,email,phone,confidence,source,elapsed_seconds,created_at
-GLEN DYER,"MOBILE, AL",QUALIFIED,http://glenndyer.com/,,,0.9,ddgs,22.77,2026-10-16T11:10:32.368062
-CHEROKEE CULVERT COMPANY INC,"MACON, GA",QUALIFIED,https://cherokeeculvert.com/,cherokeeculvert@att.net,+14782144236,1.0,"ddgs, enrichment",14.37,2026-10-16T11:10:46.743248
-CAIN AM BICKLEY LLC,"MARSHALLVILLE, GA",UNRESOLVED,,,,0.0,fmcsa,44.4,2026-10-16T11:11:31.148816
-BIOLAB INC,"LAWRENCEVILLE, GA",UNRESOLVED,,,,0.0,fmcsa,34.9,2026-10-16T11:12:06.051111
-CWT FARMS INTERNATIONAL INC,"GAINESVILLE, GA",QUALIFIED,https://cwt-farms.org/,,,0.9,ddgs,8.05,2026-10-16T11:12:14.100824

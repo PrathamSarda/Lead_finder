@@ -13,6 +13,7 @@ import {
   Sparkles,
   StopCircle,
   Terminal,
+  Trash2,
   X,
   Zap,
 } from "lucide-react";
@@ -163,8 +164,34 @@ export default function RunModal({ isOpen, onClose, onRunComplete }) {
   const handleCancelRun = async () => {
     try {
       await leadsApi.cancelRun();
+      setRunState((prev) => ({
+        ...prev,
+        status: "idle",
+        current_step: "Stopped by user",
+      }));
     } catch (err) {
       console.error("Cancel failed:", err);
+    }
+  };
+
+  const handleClearLogs = async () => {
+    try {
+      await leadsApi.clearLogs();
+      setRunState((prev) => ({
+        ...prev,
+        logs: [],
+        current_step: prev.status === "running" ? prev.current_step : "Idle",
+      }));
+    } catch (err) {
+      console.error("Failed to clear logs:", err);
+      // Fallback: clear local logs state
+      setRunState((prev) => ({ ...prev, logs: [] }));
+    }
+  };
+
+  const handleClose = () => {
+    if (onClose) {
+      onClose();
     }
   };
 
@@ -197,8 +224,10 @@ export default function RunModal({ isOpen, onClose, onRunComplete }) {
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
+            type="button"
             className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+            title="Close modal"
           >
             <X className="h-5 w-5" />
           </button>
@@ -541,9 +570,22 @@ export default function RunModal({ isOpen, onClose, onRunComplete }) {
                 <Terminal className="h-4 w-4 text-indigo-400" />
                 Pipeline Execution Logs
               </label>
-              <span className="text-[11px] text-slate-500 font-mono">
-                {runState.logs.length} events logged
-              </span>
+              <div className="flex items-center gap-2">
+                {runState.logs.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleClearLogs}
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800/80 px-2 py-0.5 text-[11px] font-semibold text-slate-300 hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-400 transition-colors"
+                    title="Clear terminal logs"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    <span>Clear Logs</span>
+                  </button>
+                )}
+                <span className="text-[11px] text-slate-500 font-mono">
+                  {runState.logs.length} events logged
+                </span>
+              </div>
             </div>
 
             <div
@@ -577,13 +619,25 @@ export default function RunModal({ isOpen, onClose, onRunComplete }) {
 
         {/* Modal Footer Controls */}
         <div className="flex items-center justify-between border-t border-slate-800 bg-slate-950/80 px-6 py-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-slate-800 px-4 py-2 text-xs font-medium text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
-          >
-            {isRunning ? "Hide (Runs in Background)" : "Close"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleClose}
+              className="rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-700 hover:text-white transition-colors"
+            >
+              {isRunning ? "Hide (Runs in Background)" : "Close"}
+            </button>
+            {runState.logs.length > 0 && (
+              <button
+                type="button"
+                onClick={handleClearLogs}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-800 px-3 py-2 text-xs font-medium text-slate-400 hover:border-slate-700 hover:bg-slate-800/50 hover:text-slate-300 transition-colors"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>Clear Logs</span>
+              </button>
+            )}
+          </div>
 
           <div className="flex items-center gap-3">
             {isRunning ? (

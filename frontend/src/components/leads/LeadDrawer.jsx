@@ -83,8 +83,12 @@ export default function LeadDrawer({ lead, isOpen, onClose }) {
                   {lead.location || "US (Nationwide)"}
                 </span>
                 <span className="flex items-center gap-1">
+                  <Briefcase className="h-3.5 w-3.5 text-amber-400" />
+                  <span className="text-amber-300 font-medium">{lead.company_type || lead.category || "SMB / Business"}</span>
+                </span>
+                <span className="flex items-center gap-1">
                   <Users className="h-3.5 w-3.5 text-indigo-400" />
-                  {lead.employee_count ? `${lead.employee_count} employees` : "10–15 employees verified"}
+                  {lead.employee_count ? `${lead.employee_count} employees` : "10–15 employees"}
                 </span>
               </div>
             </div>
@@ -111,15 +115,15 @@ export default function LeadDrawer({ lead, isOpen, onClose }) {
               </div>
               <p className="text-sm font-semibold text-white">{lead.intent_status || "Not confirmed"}</p>
               <p className="text-xs leading-relaxed text-slate-400">{lead.intent_reason || lead.status_reason || "No intent explanation was recorded."}</p>
-              {lead.indeed_job_url && (
+              {(lead.job_post_url || lead.indeed_job_url) && (
                 <div className="pt-2">
                   <a
-                    href={lead.indeed_job_url}
+                    href={lead.job_post_url || lead.indeed_job_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-400 hover:text-purple-300 hover:underline bg-purple-500/10 px-3 py-1.5 rounded-lg border border-purple-500/20"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-300 hover:text-purple-200 hover:underline bg-purple-500/15 px-3 py-1.5 rounded-lg border border-purple-500/30"
                   >
-                    <span>View Confirmed Indeed Job Posting</span>
+                    <span>View Live {lead.intent_source || "Job"} Posting</span>
                     <ExternalLink className="h-3.5 w-3.5" />
                   </a>
                 </div>

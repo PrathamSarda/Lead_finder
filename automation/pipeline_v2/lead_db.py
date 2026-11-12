@@ -114,11 +114,12 @@ class LeadDatabase:
         company_name: str,
         domain: Optional[str] = None,
         cooldown_days: int = 18,
+        only_qualified: bool = True,
     ) -> bool:
         """
         Check if a company has been processed within the cooldown window (default 18 days).
-        Returns True if it was seen recently and should be SKIPPED to guarantee a fresh company.
-        Returns False if it is new or older than cooldown_days (eligible to be processed again).
+        only_qualified=True ensures we skip only companies that were previously verified/qualified,
+        so any company that had an unverified attempt or temporary lookup issue is not permanently blocked.
         """
         norm_name = _normalize_name(company_name)
         norm_dom = _normalize_domain(domain)
@@ -127,16 +128,29 @@ class LeadDatabase:
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            query = """
-                SELECT id, company_name, last_processed_at 
-                FROM companies 
-                WHERE (
-                    (normalized_domain != '' AND normalized_domain = ?)
-                    OR (normalized_name != '' AND normalized_name = ?)
-                )
-                AND last_processed_at > ?
-                LIMIT 1
-            """
+            if only_qualified:
+                query = """
+                    SELECT id, company_name, last_processed_at 
+                    FROM companies 
+                    WHERE (
+                        (normalized_domain != '' AND normalized_domain = ?)
+                        OR (normalized_name != '' AND normalized_name = ?)
+                    )
+                    AND last_processed_at > ?
+                    AND status = 'QUALIFIED_CONVERTIBLE'
+                    LIMIT 1
+                """
+            else:
+                query = """
+                    SELECT id, company_name, last_processed_at 
+                    FROM companies 
+                    WHERE (
+                        (normalized_domain != '' AND normalized_domain = ?)
+                        OR (normalized_name != '' AND normalized_name = ?)
+                    )
+                    AND last_processed_at > ?
+                    LIMIT 1
+                """
             cursor.execute(query, (norm_dom, norm_name, cutoff_iso))
             row = cursor.fetchone()
             return row is not None

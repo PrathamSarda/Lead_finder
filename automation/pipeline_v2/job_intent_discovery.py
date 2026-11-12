@@ -16,6 +16,9 @@ from typing import Any, List, Optional
 from urllib.parse import urlparse
 
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from automation.pipeline_v2.indeed_checker import parse_listing_date, BOOKKEEPING_ROLE_KEYWORDS
 
@@ -86,20 +89,26 @@ class JobIntentDiscovery:
         elif city:
             location_part = f'"{city}"'
 
-        # Build intent search query variants
-        # e.g. Bookkeeper, Bookkeeping, QuickBooks, Payroll, Accounting Clerk
-        keywords = '("bookkeeper" OR "bookkeeping" OR "quickbooks" OR "full charge bookkeeper" OR "accounting clerk" OR "payroll specialist")'
-        
-        search_queries = [
-            # 1. LinkedIn Job Views
-            f'site:linkedin.com/jobs/view {keywords} "{country_name}" {location_part}'.strip(),
-            # 2. Indeed Job Views
-            f'site:{indeed_domain}/viewjob {keywords} {location_part}'.strip(),
-            # 3. LinkedIn Company Jobs
-            f'site:linkedin.com/jobs {keywords} "hiring" "{country_name}" {location_part}'.strip(),
-            # 4. Indeed Company Reviews/Jobs
-            f'site:{indeed_domain}/cmp {keywords} "job" {location_part}'.strip(),
+        # Build intent search query variants across all major job portals.
+        # Notice: Keep queries clean and limit per-request 'num' to 10 for full compatibility
+        # with Serper standard/free accounts without 400 query pattern restrictions.
+        role_phrases = [
+            '"bookkeeper"',
+            '"bookkeeping"',
+            '"quickbooks"',
+            '"full charge bookkeeper"',
+            '"payroll specialist"',
+            '"accounting clerk"',
         ]
+
+        search_queries = []
+        for role in role_phrases:
+            # LinkedIn
+            search_queries.append(f'site:linkedin.com/jobs/view {role} "{country_name}" {location_part}'.strip())
+            # Indeed
+            search_queries.append(f'site:{indeed_domain}/viewjob {role} {location_part}'.strip())
+            # Monster
+            search_queries.append(f'site:monster.com/job-openings {role} {location_part}'.strip())
 
         if not self.serper_key:
             print("[JobIntentDiscovery] No SERPER_API_KEY. Using mock intent pool.")
@@ -113,12 +122,13 @@ class JobIntentDiscovery:
                 break
 
             try:
-                payload = {"q": q, "num": min(limit * 2, 40), "gl": gl}
+                # Always use num=10 for standard Serper compatibility
+                payload = {"q": q, "num": 10, "gl": gl}
                 resp = requests.post(
                     self.SERPER_SEARCH_URL,
                     headers={"X-API-KEY": self.serper_key, "Content-Type": "application/json"},
                     json=payload,
-                    timeout=12,
+                    timeout=10,
                 )
                 if resp.status_code != 200:
                     continue
@@ -175,8 +185,18 @@ class JobIntentDiscovery:
 
     @staticmethod
     def _extract_company_from_job(title: str, snippet: str, link: str) -> Optional[dict[str, str]]:
-        """Parses company name and job role from LinkedIn / Indeed Google search results."""
-        source = "LinkedIn" if "linkedin.com" in link else "Indeed"
+        """Parses company name and job role from LinkedIn, Indeed, Monster, ZipRecruiter search results."""
+        if "linkedin.com" in link:
+            source = "LinkedIn"
+        elif "indeed.com" in link:
+            source = "Indeed"
+        elif "monster.com" in link:
+            source = "Monster"
+        elif "ziprecruiter.com" in link:
+            source = "ZipRecruiter"
+        else:
+            source = "JobBoard"
+
         company = None
         role = None
 
@@ -186,26 +206,47 @@ class JobIntentDiscovery:
             role = li_match.group(1).strip()
             company = li_match.group(2).strip()
 
-        # Pattern 2 (LinkedIn snippet): "Apply for [Role] at [Company] in ..."
+        # Pattern 2 (Monster standard): "Role Job - Company - Location" or "Role - Company - Location"
+        if not company and "monster.com" in link:
+            mon_match = re.search(r"^(.*?)(?:\s+Job)?\s+-\s+([^\-\|]+)(?:\s+-\s+.*)?$", title, re.I)
+            if mon_match:
+                role = mon_match.group(1).strip()
+                company = mon_match.group(2).strip()
+
+        # Pattern 3 (LinkedIn snippet): "Apply for [Role] at [Company] in ..."
         if (not company or len(company) > 50) and "linkedin.com" in link:
             snip_match = re.search(r"Apply for (?:a |an )?(.*?)\s+at\s+([^in\.]+?)(?:\s+in|\.|$)", snippet, re.I)
             if snip_match:
                 role = role or snip_match.group(1).strip()
                 company = snip_match.group(2).strip()
 
-        # Pattern 3 (Indeed standard snippet): "Role. Company. ·. Rating. Job details."
+        # Pattern 4 (Indeed standard snippet): "Role. Company. ·. Rating. Job details."
         if not company and "indeed.com" in link:
             ind_match = re.search(r"^([^\.\–\—]+)\.\s*([^\.\–\—]+?)(?:\.|\s*·|\s*Job details)", snippet, re.I)
             if ind_match:
                 role = role or ind_match.group(1).strip()
                 company = ind_match.group(2).strip()
 
-        # Pattern 4 (Indeed title fallback): "Role - Company - Location"
+        # Pattern 5 (LinkedIn URL slug): "...-at-[company-name]-[id]"
+        if (not company or len(company) > 50 or "..." in company) and "linkedin.com" in link:
+            slug_match = re.search(r"-at-([a-z0-9\-]+?)(?:-\d+)?$", link, re.I)
+            if slug_match:
+                slug_comp = slug_match.group(1).replace("-", " ").title().strip()
+                if len(slug_comp) >= 3 and not any(p in slug_comp.lower() for p in ("united states", "remote", "hybrid")):
+                    company = slug_comp
+
+        # Pattern 6 (Indeed/Generic title fallback): "Role - Company - Location"
         if not company and " - " in title:
             parts = [p.strip() for p in title.split(" - ")]
             if len(parts) >= 2 and any(kw in parts[0].lower() for kw in ("bookkeeper", "accounting", "quickbooks", "payroll")):
                 role = parts[0]
                 company = parts[1]
+
+        # Pattern 7 (Monster/ZipRecruiter snippet): "[Company] is looking for..." or "[Company] is hiring..."
+        if not company:
+            hire_match = re.search(r"^([A-Z0-9][A-Za-z0-9\s,\.]{2,35})\s+(?:is hiring|is seeking|is looking for|is currently seeking)", snippet)
+            if hire_match:
+                company = hire_match.group(1).strip()
 
         if not company:
             return None
