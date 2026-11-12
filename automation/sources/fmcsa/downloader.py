@@ -20,6 +20,8 @@ class FMCSADownloadError(RuntimeError):
 
 def download_company_sample(
     limit: int = DEFAULT_SAMPLE_LIMIT,
+    state: str | None = None,
+    city: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Download a small sample from the FMCSA Company Census dataset.
@@ -44,11 +46,21 @@ def download_company_sample(
         )
 
     try:
+        params: dict[str, Any] = {"$limit": limit}
+        clauses = ["status_code = 'A'"]
+        if state:
+            normalized_state = state.strip().upper()
+            if len(normalized_state) != 2 or not normalized_state.isalpha():
+                raise ValueError("State must be a two-letter US state code.")
+            # Limit at the source so a state-filtered run does not sample unrelated rows.
+            clauses.append(f"upper(phy_state) = '{normalized_state}'")
+        if city and city.strip():
+            safe_city = city.strip().replace("'", "''")[:100]
+            clauses.append(f"upper(phy_city) = upper('{safe_city}')")
+        params["$where"] = " AND ".join(clauses)
         response = requests.get(
             FMCSA_DATASET_API_URL,
-            params={
-                "$limit": limit,
-            },
+            params=params,
             timeout=DEFAULT_TIMEOUT_SECONDS,
         )
 

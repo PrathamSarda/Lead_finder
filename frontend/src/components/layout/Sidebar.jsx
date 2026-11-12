@@ -1,22 +1,16 @@
 import { NavLink } from "react-router-dom";
 import {
-  Building2,
-  Compass,
-  FileSpreadsheet,
-  Layers,
-  PlayCircle,
+  LayoutDashboard,
   Settings as SettingsIcon,
   Sparkles,
-  TrendingUp,
 } from "lucide-react";
 
 const NAV_ITEMS = [
-  { to: "/dashboard", label: "Lead Intelligence", icon: Compass, badge: "Live" },
-  { to: "/companies", label: "Discovered Finds", icon: Building2 },
+  { to: "/dashboard", label: "Lead Dashboard", icon: LayoutDashboard },
   { to: "/settings", label: "System Config", icon: SettingsIcon },
 ];
 
-export default function Sidebar({ onOpenRunModal }) {
+export default function Sidebar() {
   return (
     <aside className="hidden w-64 shrink-0 flex-col border-r border-slate-800/80 bg-slate-950/95 backdrop-blur-xl md:flex">
       {/* Brand Header */}
@@ -33,18 +27,6 @@ export default function Sidebar({ onOpenRunModal }) {
           </div>
           <p className="text-[11px] font-medium text-slate-400">Prokizen Global LLP</p>
         </div>
-      </div>
-
-      {/* Quick Launch CTA */}
-      <div className="p-4">
-        <button
-          onClick={onOpenRunModal}
-          className="group relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/25 transition-all hover:scale-[1.02] hover:shadow-indigo-600/40 active:scale-[0.98]"
-        >
-          <PlayCircle className="h-4 w-4 transition-transform group-hover:rotate-12" />
-          <span>Run Test Cases</span>
-          <span className="absolute right-0 top-0 h-full w-12 bg-white/10 skew-x-12 opacity-0 group-hover:opacity-100 transition-opacity" />
-        </button>
       </div>
 
       {/* Navigation */}
@@ -81,17 +63,9 @@ export default function Sidebar({ onOpenRunModal }) {
         })}
       </nav>
 
-      {/* Target Metrics Pill */}
-      <div className="m-4 rounded-xl border border-slate-800/90 bg-slate-900/60 p-3.5 text-xs">
-        <div className="flex items-center justify-between text-slate-400 mb-1">
-          <span className="flex items-center gap-1.5 font-medium">
-            <TrendingUp className="h-3.5 w-3.5 text-emerald-400" /> Daily Target
-          </span>
-          <span className="font-semibold text-white">80 / day</span>
-        </div>
-        <p className="text-[11px] text-slate-400 leading-relaxed">
-          US companies (1-20 employees) with verified domain & direct contacts.
-        </p>
+      <div className="m-4 rounded-xl border border-slate-800/90 bg-slate-900/60 p-3.5 text-xs text-slate-400">
+        <p className="font-semibold text-slate-200">FMCSA lead workflow</p>
+        <p className="mt-1 text-[11px] leading-relaxed">Qualify small carriers using LinkedIn size, intent, and decision-maker profile signals.</p>
       </div>
 
       {/* Footer Info */}

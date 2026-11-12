@@ -1,8 +1,7 @@
 """
 CLI Runner for the Multi-Tool Intent-Driven Lead Generation Pipeline.
-Example usages:
-    python run_intent_pipeline.py --query "plumbing firms in Austin, TX" --count 10
-    python run_intent_pipeline.py --query "digital marketing agencies in Miami, FL"
+Example usage:
+    python run_intent_pipeline.py --niche "bookkeeping, payroll, or scaling needs" --city Austin --state TX --count 10
 """
 from __future__ import annotations
 
@@ -29,17 +28,16 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run the Multi-Tool Lead Generation Pipeline for B2B Bookkeeping Intent Leads."
     )
-    parser.add_argument(
-        "--query",
-        type=str,
-        default="plumbing firms in Austin, TX",
-        help="Search query for Serper Google Maps discovery (e.g. 'plumbing firms in Austin, TX').",
-    )
+    parser.add_argument("--niche", "--query", dest="niche", type=str, default="bookkeeping, accounting, tax preparation, payroll, or scaling support", help="Buying intent to evaluate from recent company LinkedIn posts.")
+    parser.add_argument("--city", type=str, default=None, help="Optional FMCSA company city filter.")
+    parser.add_argument("--state", type=str, default=None, help="Optional two-letter US state filter.")
+    parser.add_argument("--region", type=str, default="US", help="Target country/region code: US, UK, AU, CA.")
+    parser.add_argument("--after-date", dest="after_date", type=str, default=None, help="Filter for bookkeeping need posted on or after this date (YYYY-MM-DD).")
     parser.add_argument(
         "--count",
         type=int,
         default=10,
-        help="Number of local businesses to discover and evaluate.",
+        help="Number of qualified SMB leads (10-15 headcount, verified bookkeeping intent, company email) to find.",
     )
     parser.add_argument(
         "--output-dir",
@@ -53,7 +51,16 @@ def parse_args() -> argparse.Namespace:
 def main():
     args = parse_args()
     pipeline = MultiToolLeadPipeline()
-    pipeline.run(query=args.query, target_count=args.count, output_dir=args.output_dir)
+    pipeline.run(
+        query=args.niche,
+        target_count=args.count,
+        output_dir=args.output_dir,
+        city=args.city,
+        state=args.state,
+        region=args.region,
+        after_date=args.after_date,
+        candidate_source="jobs",
+    )
 
 
 if __name__ == "__main__":

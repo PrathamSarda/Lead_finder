@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import os
 import random
+import re
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from typing import Any
 from urllib.parse import urlparse
 
@@ -42,24 +44,76 @@ def extract_domain(url: str | None) -> str | None:
         return None
 
 
-# Built-in rotation lists for diverse US SMB discovery across multiple industries & cities
-DEFAULT_DISCOVERY_QUERIES = [
-    "commercial HVAC contractors in Dallas, TX",
-    "electrical contractors in Austin, TX",
-    "commercial roofing companies in Houston, TX",
-    "plumbing contractors in San Antonio, TX",
-    "landscape design contractors in Phoenix, AZ",
-    "general contractors in Denver, CO",
-    "commercial cleaning companies in Atlanta, GA",
-    "digital marketing agencies in Miami, FL",
-    "auto repair and collision centers in Charlotte, NC",
-    "freight logistics companies in Columbus, OH",
-    "custom home builders in Nashville, TN",
-    "solar installation companies in Tampa, FL",
-    "architectural design firms in Indianapolis, IN",
-    "commercial painting contractors in Orlando, FL",
-    "facilities maintenance companies in Salt Lake City, UT",
-]
+# Built-in rotation lists for diverse SMB discovery across regions & industries
+REGION_CONFIGS: dict[str, dict[str, Any]] = {
+    "US": {
+        "name": "United States",
+        "gl": "us",
+        "hl": "en",
+        "indeed_domain": "indeed.com",
+        "queries": [
+            "commercial HVAC contractors in Dallas, TX",
+            "electrical contractors in Austin, TX",
+            "commercial roofing companies in Houston, TX",
+            "plumbing contractors in San Antonio, TX",
+            "landscape design contractors in Phoenix, AZ",
+            "general contractors in Denver, CO",
+            "commercial cleaning companies in Atlanta, GA",
+            "digital marketing agencies in Miami, FL",
+            "auto repair and collision centers in Charlotte, NC",
+            "freight logistics companies in Columbus, OH",
+            "custom home builders in Nashville, TN",
+            "solar installation companies in Tampa, FL",
+        ],
+    },
+    "UK": {
+        "name": "United Kingdom",
+        "gl": "gb",
+        "hl": "en",
+        "indeed_domain": "indeed.co.uk",
+        "queries": [
+            "commercial HVAC companies in London, UK",
+            "electrical contractors in Manchester, UK",
+            "commercial roofing companies in Birmingham, UK",
+            "plumbing contractors in Leeds, UK",
+            "digital marketing agencies in Bristol, UK",
+            "building contractors in Glasgow, UK",
+            "commercial cleaning companies in Edinburgh, UK",
+            "logistics companies in Liverpool, UK",
+        ],
+    },
+    "AU": {
+        "name": "Australia",
+        "gl": "au",
+        "hl": "en",
+        "indeed_domain": "au.indeed.com",
+        "queries": [
+            "commercial HVAC contractors in Sydney, NSW",
+            "electrical contractors in Melbourne, VIC",
+            "commercial roofing companies in Brisbane, QLD",
+            "plumbing contractors in Perth, WA",
+            "digital marketing agencies in Adelaide, SA",
+            "commercial builders in Gold Coast, QLD",
+            "facilities maintenance companies in Canberra, ACT",
+        ],
+    },
+    "CA": {
+        "name": "Canada",
+        "gl": "ca",
+        "hl": "en",
+        "indeed_domain": "ca.indeed.com",
+        "queries": [
+            "commercial HVAC contractors in Toronto, ON",
+            "electrical contractors in Vancouver, BC",
+            "commercial roofing companies in Montreal, QC",
+            "plumbing contractors in Calgary, AB",
+            "digital marketing agencies in Ottawa, ON",
+            "general contractors in Edmonton, AB",
+        ],
+    },
+}
+
+DEFAULT_DISCOVERY_QUERIES = REGION_CONFIGS["US"]["queries"]
 
 
 class SerperMapsDiscovery:
@@ -70,12 +124,25 @@ class SerperMapsDiscovery:
     def __init__(self, api_key: str | None = None):
         self.api_key = (api_key or os.getenv("SERPER_API_KEY", "")).strip()
 
-    def discover(self, query: str | None = None, limit: int = 20) -> list[DiscoveredBusiness]:
+    def discover(self, query: str | None = None, limit: int = 20, region: str = "US") -> list[DiscoveredBusiness]:
         """
         Search Google Maps via Serper.
-        If query is empty or default, rotates to an active target query.
+        If query is empty or default, rotates to an active target query for the target region.
         """
-        active_query = query.strip() if query and query.strip() else random.choice(DEFAULT_DISCOVERY_QUERIES)
+        reg = region.upper() if region else "US"
+        if "," in reg:
+            regions = [r.strip() for r in reg.split(",") if r.strip()]
+            combined: list[DiscoveredBusiness] = []
+            per_limit = max(1, limit // len(regions))
+            for sub_reg in regions:
+                sub_res = self.discover(query=query, limit=per_limit, region=sub_reg)
+                combined.extend(sub_res)
+            return combined[:limit]
+
+        config = REGION_CONFIGS.get(reg, REGION_CONFIGS["US"])
+        queries_pool = config.get("queries", DEFAULT_DISCOVERY_QUERIES)
+
+        active_query = query.strip() if query and query.strip() else random.choice(queries_pool)
 
         if not self.api_key:
             return self._mock_fallback(active_query, limit)
@@ -87,6 +154,8 @@ class SerperMapsDiscovery:
         payload = {
             "q": active_query,
             "num": limit,
+            "gl": config.get("gl", "us"),
+            "hl": config.get("hl", "en"),
         }
 
         try:
@@ -98,6 +167,36 @@ class SerperMapsDiscovery:
         except Exception as exc:
             print(f"[Serper] Error querying '{active_query}': {exc}. Using fallback pool.")
             return self._mock_fallback(active_query, limit)
+
+    def lookup_company(self, company_name: str, location: str | None = None, region: str = "US") -> DiscoveredBusiness | None:
+        """Use Google Maps to enrich a company without substituting demo data."""
+        if not self.api_key:
+            raise RuntimeError("SERPER_API_KEY is required for Google Maps enrichment.")
+        query = ", ".join(part for part in (company_name, location) if part)
+        reg = (region.split(",")[0].strip().upper()) if region else "US"
+        config = REGION_CONFIGS.get(reg, REGION_CONFIGS["US"])
+
+        response = requests.post(
+            self.ENDPOINT,
+            headers={"X-API-KEY": self.api_key, "Content-Type": "application/json"},
+            json={
+                "q": query,
+                "num": 5,
+                "gl": config.get("gl", "us"),
+                "hl": config.get("hl", "en"),
+            },
+            timeout=15,
+        )
+        response.raise_for_status()
+        places = self._parse_places(response.json().get("places", []), 5)
+        normalize = lambda value: re.sub(r"[^a-z0-9]", "", value.lower())
+        target = normalize(company_name)
+        ranked = sorted(places, key=lambda place: SequenceMatcher(None, target, normalize(place.title)).ratio(), reverse=True)
+        if not ranked:
+            return None
+        best = ranked[0]
+        score = SequenceMatcher(None, target, normalize(best.title)).ratio()
+        return best if score >= 0.55 else None
 
     def _parse_places(self, places: list[dict[str, Any]], limit: int) -> list[DiscoveredBusiness]:
         results: list[DiscoveredBusiness] = []

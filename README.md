@@ -1,152 +1,69 @@
 # Company Lead Finder
 
-A production-ready **foundation** for a SaaS application that finds
-US-based companies (1–15 employees) likely to need bookkeeping services,
-and resolves a contact email/phone for outreach — sourced across
-LinkedIn, Indeed, Google Search, and Wellfound.
+Local lead qualification workflow for small US businesses. Candidate businesses are sourced from active US FMCSA records. Serper Google Maps enriches those records with a likely website, phone, and address; Serper web search finds their LinkedIn company page; Apify checks that company headcount is within the **10–15 employee range**; the system verifies bookkeeping requirements via **company LinkedIn activity OR Indeed job postings** (evaluating whether the company is actively seeking bookkeeping, accounting, tax, or payroll services); Serper finds the decision-maker's public LinkedIn profile (Owner, Founder, CEO, President, Managing Partner); Hunter finds and verifies that named decision-maker's work email (with company website email fallback). All results and verification sources are displayed on the React frontend dashboard and exported to client-ready Excel and CSV reports.
 
-This is a scaffold, not a finished product. It ships with authentication,
-routing, a clean backend architecture, and a reusable UI component set —
-but no scraping/search logic.
+## Workflow
 
-## Tech stack
+1. Sourcing: Pull active US carrier records from the FMCSA Company Census, optionally filtered by city and state.
+2. Local Enrichment: Enrich each record with likely business website, phone, and address via Serper Google Maps.
+3. Employee Size Gate: Find the company LinkedIn page and check headcount using Apify. Enforces the **10–15 employee range** (companies outside 10–15 employees are dropped).
+4. Bookkeeping Requirement Verification (LinkedIn OR Indeed):
+   - **LinkedIn Check**: Evaluate recent company LinkedIn posts using Gemini 3.8 Flash (with rule-based fallback) for bookkeeping, accounting, tax, payroll, and financial scaling needs.
+   - **Indeed Check**: If LinkedIn activity does not confirm bookkeeping intent, search Indeed for active job listings (e.g. Bookkeeper, Full Charge Bookkeeper, Staff Accountant, Payroll Specialist, QuickBooks, Tax Preparer).
+   - **Confirmation Gate**: Only companies with confirmed bookkeeping requirements via LinkedIn or Indeed advance to qualification.
+5. Decision Maker & Email Retrieval: Find the decision-maker's public LinkedIn profile using Serper, then find and verify their work email with Hunter (with website fallback).
+6. Dashboard & Export: Show all verified leads, headcount, intent confirmation source (LinkedIn vs Indeed), decision maker, email verification status, and profile URLs directly on the frontend dashboard, and export client-ready CSV and Excel (.xlsx) files.
 
-**Frontend** — React (Vite), Tailwind CSS, React Router, Axios, React Query, React Hook Form
-**Backend** — FastAPI, SQLAlchemy, PostgreSQL, Alembic, Pydantic
-**Auth** — JWT access + refresh tokens, bcrypt password hashing
-**Automation** — Playwright (Python) — structural scaffold only, multi-source
-**Scheduler** — APScheduler — wired up, no jobs registered
+Serper results can be ambiguous and public LinkedIn data can be incomplete. Review the website, match, employee count, activity dates, and profile links before outreach. A missing public post or profile is not proof a company is closed.
 
-## Project structure
+## Local setup
 
-```
-company-lead-finder/
-│
-├── frontend/                # React (Vite) SPA
-│   └── src/
-│       ├── api/               # Axios client + API modules (auth, companies)
-│       ├── components/
-│       │   ├── auth/           # ProtectedRoute
-│       │   ├── layout/         # Navbar, Sidebar, Layout
-│       │   └── ui/             # Button, Card, Table, Modal, Loading, Toast
-│       ├── context/            # AuthContext
-│       ├── hooks/               # React Query hooks (useCurrentUser, useCompanies)
-│       ├── pages/                # Login, Dashboard, Companies, Settings, etc.
-│       └── routes/                # Route definitions
-│
-├── backend/                  # FastAPI application
-│   └── app/
-│       ├── api/v1/             # Versioned routers (auth, users, companies)
-│       ├── core/                 # Config + security (JWT, hashing)
-│       ├── db/                    # SQLAlchemy engine/session/Base
-│       ├── models/                 # User (login) + Company (lead) ORM models
-│       ├── schemas/                  # Pydantic schemas
-│       ├── services/                  # Business logic layer (empty)
-│       └── scheduler/                  # APScheduler wiring (no jobs)
-│
-├── automation/                # Multi-source lead discovery scaffold (no logic)
-│   ├── browser/                  # Shared Playwright session management
-│   ├── sources/
-│   │   ├── linkedin/
-│   │   ├── indeed/
-│   │   ├── google/
-│   │   └── wellfound/
-│   ├── handlers/                  # search / enrichment / email-finder orchestration
-│   └── utils/                      # dedup, validation, logging helpers
-│
-├── database/                   # Migration notes + local init script
-├── docs/                         # Architecture documentation
-├── tests/                          # Test suites (backend/frontend/automation)
-├── scripts/                         # Setup, migration, and seed scripts
-│
-├── .env.example
-├── docker-compose.yml
-├── requirements.txt
-└── README.md
-```
+Requirements: Python 3.10+, Node.js 20+, local PostgreSQL for the existing sign-in flow, Serper API key, Apify API token, and Hunter API key. Gemini is optional; without it the deterministic fallback runs. The model is called through its API when enabled; it is not deployed in the client environment. Pipeline history uses the local SQLite database.
 
-## Getting started
+### Backend
 
-### Option A — Docker Compose
-
-```bash
-cp .env.example .env
-docker compose up --build
-```
-
-- Frontend: http://localhost:5173
-- Backend API: http://localhost:8000
-- API docs (Swagger): http://localhost:8000/docs
-
-### Option B — Run locally
-
-**Backend**
-
-```bash
+```powershell
 cd backend
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-cp .env.example .env
+Copy-Item .env.example .env
+```
+
+Set `SERPER_API_KEY`, `APIFY_API_TOKEN`, and `HUNTER_API_KEY` in `backend/.env`.
+Optionally set `GEMINI_API_KEY`. Hunter uses its Email Finder and Email Verifier
+API endpoints; account credits and plan limits apply. The default Apify actors can be changed with
+`APIFY_LINKEDIN_COMPANY_ACTOR` and `APIFY_LINKEDIN_POSTS_ACTOR` if the client
+uses compatible actors. Then start the API:
+
+```powershell
 alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-**Frontend**
+The PostgreSQL database named in `DATABASE_URL` must be running before the
+migration and sign-in. Create the local login account through the backend's
+`POST /api/v1/auth/register` endpoint; the current frontend provides sign-in but
+does not include an account-registration screen.
 
-```bash
+### Frontend
+
+In a second terminal from the repository root:
+
+```powershell
 cd frontend
 npm install
-cp .env.example .env
 npm run dev
 ```
 
-A convenience script exists at `scripts/setup.sh` that runs the equivalent
-of both steps above.
+Open the local Vite URL. In the dashboard choose **Run Lead Discovery Pipeline**,
+set a qualified-lead target, optional city/state, and the buying-intent niche.
+The API reports the current stage and company while the run executes. Export
+qualified records from the dashboard as CSV or Excel.
 
-## Authentication flow
+## Data and privacy
 
-1. `POST /api/v1/auth/register` — create an account.
-2. `POST /api/v1/auth/login` — returns a short-lived **access token** and a
-   longer-lived **refresh token** (both JWTs).
-3. The frontend attaches the access token to every request via an Axios
-   interceptor and automatically refreshes it on a 401 response.
-4. `GET /api/v1/users/me` — returns the current authenticated user.
-
-## Companies (leads) API
-
-Basic CRUD/listing is already wired up — it just has no data yet, since
-no source implements real search/extraction logic:
-
-- `GET /api/v1/companies` — list companies (filterable by `status`)
-- `POST /api/v1/companies` — create a company record
-- `GET /api/v1/companies/{id}` — fetch a single company
-- `PATCH /api/v1/companies/{id}` — update a company (e.g. once a contact
-  email is resolved)
-
-## Database migrations
-
-Migrations are managed with Alembic, wired to the SQLAlchemy models under
-`backend/app/models/`.
-
-```bash
-cd backend
-alembic revision --autogenerate -m "describe your change"
-alembic upgrade head
-```
-
-## What's intentionally NOT included
-
-- Search/scraping/extraction logic for any of the four sources
-  (`automation/sources/*` are structural placeholders only).
-- Deduplication, enrichment, or email-resolution logic
-  (`automation/handlers/*`, `automation/utils/*` are stubs).
-- Playwright scripts/selectors.
-- Billing, email verification, password reset, or social login flows.
-- A production Kubernetes/CI setup (Dockerfiles are provided as a starting
-  point only).
-
-## Extending this template
-
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for a fuller description
-of how the pieces fit together, including the intended (not yet
-implemented) lead-discovery data flow.
+- Provider API keys stay in the local backend configuration and are not sent to the browser.
+- FMCSA candidates, run state, and CSV exports are local. Qualified pipeline history is stored in the existing SQLite database under `data/`.
+- Serper and Apify API usage may incur charges under the client's plans. Gemini usage is also billed according to its API account when enabled.
+- `outputs/` and `data/` contain historical local project data and are not cleared by a run.

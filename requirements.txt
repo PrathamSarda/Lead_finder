@@ -13,9 +13,7 @@ phonenumbers==9.0.13
 ddgs==9.14.4
 apify-client
 dnspython
-openai
 openpyxl
-pyhunter
 
 # Testing dependencies
 pytest==9.1.1

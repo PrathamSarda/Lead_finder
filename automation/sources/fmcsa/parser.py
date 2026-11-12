@@ -77,7 +77,12 @@ def parse_company(record: dict[str, Any]) -> CompanyLead:
         location=_build_location(record),
         employee_count=_build_size_proxy(record),
         contact_email=None,
-        contact_phone=None,
+        contact_phone=(
+            _clean_value(record.get("phone"))
+            or _clean_value(record.get("telephone"))
+            or _clean_value(record.get("telephone_number"))
+            or None
+        ),
         contact_page=None,
         source="FMCSA",
     )

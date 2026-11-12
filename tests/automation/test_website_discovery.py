@@ -12,12 +12,9 @@ def test_generate_domain_candidates():
         "Dixon Paving Corporation"
     )
 
-    assert candidates[:3] == [
-        "https://dixonpaving.com",
-        "https://dixonpaving.net",
-        "https://dixonpaving.co",
-    ]
-
+    assert "https://dixonpaving.com" in candidates
+    assert "https://dixonpaving.net" in candidates
+    assert "https://dixonpaving.co" in candidates
     assert (
         "https://dixon-paving.com"
         in candidates

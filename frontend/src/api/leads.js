@@ -21,8 +21,24 @@ export const leadsApi = {
   /**
    * Trigger discovery / test case run
    */
-  triggerRun: async ({ count = 10, state = null, mode = "discovery" }) => {
-    const res = await apiClient.post("/leads/run", { count, state, mode });
+  triggerRun: async ({
+    count = 10,
+    state = null,
+    city = null,
+    mode = "bookkeeping",
+    niche = "",
+    region = "US",
+    after_date = null,
+  }) => {
+    const res = await apiClient.post("/leads/run", {
+      count,
+      state,
+      city,
+      mode,
+      niche,
+      region,
+      after_date,
+    });
     return res.data;
   },
 
@@ -69,13 +85,24 @@ export const leadsApi = {
 
     const cleanName = filename || `Prokizen_Leads_${new Date().toISOString().slice(0, 10)}.xlsx`;
 
-    // Map clean tabular data matching the 5 required parameters
+    // Client-ready intent and dual-email lead fields
     const tableData = leads.map((lead, idx) => ({
       "#": idx + 1,
       "Company Name": lead.company_name || "",
+      "Region": lead.region || "US",
+      "Employees (10-15)": lead.employee_count || "",
+      "Phone Number": lead.phone || "",
+      "Address": lead.location || "",
       "Website": lead.website || "",
+      "Company Email (Min Req)": lead.company_email || "",
+      "Bookkeeping Intent": lead.intent_status || "",
+      "Intent Source": lead.intent_source || (lead.has_recent_linkedin_post ? "LinkedIn" : ""),
+      "Intent Reason": lead.intent_reason || lead.status_reason || "",
       "Company LinkedIn": lead.company_linkedin_url || lead.linkedin || "",
       "Decision Maker Name": lead.decision_maker_name || lead.owner_name || "",
+      "Decision Maker Title": lead.decision_maker_title || lead.owner_title || "",
+      "Decision Maker Email": lead.decision_maker_email || (lead.email !== lead.company_email ? lead.email : "") || "",
+      "Email Verification": lead.email_status || "",
       "Decision Maker LinkedIn": lead.decision_maker_linkedin_url || "",
     }));
 
@@ -88,9 +115,20 @@ export const leadsApi = {
     const colWidths = [
       { wch: 4 },  // #
       { wch: 32 }, // Company Name
+      { wch: 10 }, // Region
+      { wch: 18 }, // Employees (10-15)
+      { wch: 20 }, // Phone Number
+      { wch: 40 }, // Address
       { wch: 32 }, // Website
+      { wch: 30 }, // Company Email (Min Req)
+      { wch: 24 }, // Bookkeeping Intent
+      { wch: 18 }, // Intent Source
+      { wch: 52 }, // Intent Reason
       { wch: 36 }, // Company LinkedIn
       { wch: 28 }, // Decision Maker Name
+      { wch: 24 }, // Decision Maker Title
+      { wch: 34 }, // Decision Maker Email
+      { wch: 20 }, // Email Verification
       { wch: 38 }, // Decision Maker LinkedIn
     ];
     ws["!cols"] = colWidths;

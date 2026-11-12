@@ -1,3 +1,5 @@
+from unittest.mock import MagicMock, patch
+
 from automation.enrichment.website_fetcher import (
     fetch_website,
     normalize_url,
@@ -28,7 +30,16 @@ def test_fetch_website_rejects_empty_url():
     assert result.error is not None
 
 
-def test_fetch_website_downloads_html():
+@patch("automation.enrichment.website_fetcher.requests.get")
+def test_fetch_website_downloads_html(mock_get):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.url = "https://example.com"
+    mock_resp.text = "<html><head><title>Example</title></head><body>Example</body></html>"
+    mock_resp.headers = {"Content-Type": "text/html; charset=utf-8"}
+    mock_resp.raise_for_status = MagicMock()
+    mock_get.return_value = mock_resp
+
     result = fetch_website("https://example.com")
 
     assert result.success is True

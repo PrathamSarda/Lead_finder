@@ -29,6 +29,11 @@ from openpyxl.utils import get_column_letter
 
 from automation.verification.models import EXPORT_FIELDNAMES
 
+try:
+    from app.core.config import settings
+except ImportError:
+    from backend.app.core.config import settings
+
 router = APIRouter()
 
 WORKSPACE_DIR = Path(__file__).resolve().parents[5]
@@ -102,10 +107,35 @@ def parse_csv_lead(row: Dict[str, str], source_file: str) -> Dict[str, Any]:
         or ""
     ).strip()
 
-    email = (
-        row.get("Verified Email")
+    company_email = (
+        row.get("Company Email")
+        or row.get("company_email")
+        or ""
+    ).strip()
+
+    decision_maker_email = (
+        row.get("Decision Maker Email")
+        or row.get("decision_maker_email")
+        or row.get("Verified Email")
         or row.get("owner_email")
-        or row.get("email")
+        or ""
+    ).strip()
+
+    # General email field for backwards compatibility
+    email = decision_maker_email or company_email or (
+        row.get("email")
+        or ""
+    ).strip()
+
+    region = (
+        row.get("Region")
+        or row.get("region")
+        or "US"
+    ).strip().upper()
+
+    after_date = (
+        row.get("After Date")
+        or row.get("after_date")
         or ""
     ).strip()
 
@@ -132,8 +162,13 @@ def parse_csv_lead(row: Dict[str, str], source_file: str) -> Dict[str, Any]:
     # Normalize status for dashboard display
     if status_raw in ("READY_FOR_OUTREACH", "QUALIFIED_CONVERTIBLE", "VERIFIED"):
         status = "VERIFIED"
-        lead_tier = "FULL_LEAD" if (email and phone) else ("FULL_LEAD" if email else "WEBSITE_ONLY")
-    elif status_raw in ("NEEDS_REVIEW", "INTENT_VERIFIED_NO_EMAIL"):
+        if company_email and decision_maker_email:
+            lead_tier = "FULL_LEAD"
+        elif company_email:
+            lead_tier = "COMPANY_EMAIL_ONLY"
+        else:
+            lead_tier = "WEBSITE_ONLY"
+    elif status_raw in ("NEEDS_REVIEW", "INTENT_VERIFIED_NO_EMAIL", "NO_COMPANY_EMAIL"):
         status = "NEEDS_REVIEW"
         lead_tier = "WEBSITE_ONLY"
     elif status_raw in ("DROPPED_SIZE", "NO_INTENT"):
@@ -149,6 +184,18 @@ def parse_csv_lead(row: Dict[str, str], source_file: str) -> Dict[str, Any]:
         or row.get("status_reason")
         or ""
     ).strip()
+    intent_raw = str(row.get("intent_found", "")).strip().lower()
+    intent_source = (row.get("intent_source") or row.get("Intent Source") or "").strip()
+    indeed_job_url = (row.get("indeed_job_url") or row.get("Indeed Job URL") or "").strip()
+
+    if intent_raw in {"true", "1", "yes"}:
+        intent_status = f"CONFIRMED ({intent_source})" if intent_source and intent_source != "None" else "CONFIRMED"
+    elif intent_raw in {"false", "0", "no"}:
+        intent_status = "NOT CONFIRMED"
+    else:
+        intent_status = status_raw.replace("_", " ")
+
+    employee_count = row.get("employee_count") or row.get("employee_range") or ""
 
     raw_conf = row.get("Verification Score") or row.get("email_confidence") or row.get("confidence") or "0"
     confidence_val = 0.0
@@ -204,12 +251,17 @@ def parse_csv_lead(row: Dict[str, str], source_file: str) -> Dict[str, Any]:
         "status": status,
         "lead_tier": lead_tier,
         "status_reason": status_reason,
+        "intent_status": intent_status,
+        "intent_reason": status_reason,
+        "employee_count": employee_count,
         "website": website,
         "website_status": "VALID" if website else "",
         "website_source": row.get("website_source", ""),
         "email": email,
-        "email_status": "VERIFIED" if email else "",
+        "email_status": (row.get("email_status") or ("VERIFIED" if email else "")).strip().upper(),
         "email_source": row.get("email_source", ""),
+        "email_confidence": row.get("email_confidence", ""),
+        "has_recent_linkedin_post": str(row.get("has_recent_linkedin_post", "")).strip().lower() in {"true", "1", "yes"},
         "phone": phone,
         "phone_status": "VERIFIED" if phone else "",
         "phone_source": row.get("phone_source", ""),
@@ -225,6 +277,12 @@ def parse_csv_lead(row: Dict[str, str], source_file: str) -> Dict[str, Any]:
         "decision_maker_name": owner_name,
         "decision_maker_title": owner_title,
         "decision_maker_linkedin_url": decision_maker_linkedin_url,
+        "company_email": company_email,
+        "decision_maker_email": decision_maker_email,
+        "region": region,
+        "after_date": after_date,
+        "intent_source": intent_source,
+        "indeed_job_url": indeed_job_url,
     }
 
 
@@ -267,10 +325,22 @@ def load_all_leads_deduplicated() -> List[Dict[str, Any]]:
 class RunRequest(BaseModel):
     count: int = Field(default=10, ge=1, le=100, description="Number of companies to process")
     state: Optional[str] = Field(default=None, description="Optional US State filter (e.g. TX, GA, CA)")
-    mode: str = Field(default="discovery", description="'discovery' (live FMCSA) or 'test_batch' (curated test suite)")
+    city: Optional[str] = Field(default=None, max_length=100, description="Optional city filter")
+    mode: str = Field(default="bookkeeping", description="'bookkeeping' runs the full intent qualification workflow")
+    niche: str = Field(default="bookkeeping, accounting, tax preparation, payroll, or scaling support", max_length=200)
+    region: str = Field(default="US", description="Target region/country (US, UK, AU, CA)")
+    after_date: Optional[str] = Field(default=None, description="Services required on or after date (YYYY-MM-DD)")
 
 
-def _run_pipeline_worker(count: int, state: Optional[str], mode: str) -> None:
+def _run_pipeline_worker(
+    count: int,
+    state: Optional[str],
+    city: Optional[str],
+    mode: str,
+    niche: str,
+    region: str = "US",
+    after_date: Optional[str] = None,
+) -> None:
     """Background worker executing the discovery or test cases pipeline."""
     global RUN_CANCEL_FLAG
 
@@ -293,7 +363,9 @@ def _run_pipeline_worker(count: int, state: Optional[str], mode: str) -> None:
         run_state["run_id"] = out_filename
         run_state["output_file"] = str(output_path)
 
-    add_log(f"Starting {mode.upper()} pipeline for {count} companies...")
+    add_log(f"Starting {mode.upper()} pipeline for {count} companies in region {region.upper()}...")
+    if after_date:
+        add_log(f"Cutoff Date Filter: Services needed on or after {after_date}")
     if state:
         add_log(f"Filter US State: {state.upper()}")
 
@@ -314,17 +386,48 @@ def _run_pipeline_worker(count: int, state: Optional[str], mode: str) -> None:
 
         if mode == "bookkeeping" or mode == "intent":
             with RUN_STATE_LOCK:
-                run_state["current_step"] = "Discovering SMBs & Verifying Bookkeeping Intent"
-            add_log(f"[Step 1/3] Running automated Bookkeeping Intent Discovery for {count} companies...")
+                run_state["current_step"] = f"Discovering SMBs & Verifying Bookkeeping Intent ({region.upper()})"
+            add_log(f"[Step 1/3] Running automated Bookkeeping Intent Discovery for {count} companies in {region.upper()}...")
             from automation.pipeline_v2.pipeline_orchestrator import MultiToolLeadPipeline
             
-            intent_pipe = MultiToolLeadPipeline()
+            intent_pipe = MultiToolLeadPipeline(
+                serper_key=settings.SERPER_API_KEY,
+                apify_token=settings.APIFY_API_TOKEN,
+                gemini_key=settings.GEMINI_API_KEY,
+                hunter_key=settings.HUNTER_API_KEY,
+                company_actor=settings.APIFY_LINKEDIN_COMPANY_ACTOR,
+                posts_actor=settings.APIFY_LINKEDIN_POSTS_ACTOR,
+                min_employees=10,
+                max_employees=15,
+            )
             # Default automated query for bookkeeping candidates
-            query_str = f"commercial services in {state.upper() if state else 'TX'}"
-            leads_result = intent_pipe.run(query=query_str, target_count=count, output_dir=str(OUTPUTS_DIR))
+            def report_pipeline_progress(event: dict[str, Any]) -> None:
+                with RUN_STATE_LOCK:
+                    run_state["current_step"] = event.get("step", "Processing")
+                    run_state["current_company"] = event.get("company")
+                    run_state["processed_count"] = int(event.get("processed", run_state["processed_count"]))
+                    run_state["requested_count"] = int(event.get("total", run_state["requested_count"])) or count
+                    run_state["verified_count"] = int(event.get("verified", run_state["verified_count"]))
+                    run_state["full_lead_count"] = run_state["verified_count"]
+                    msg = event.get("step")
+                    company = event.get("company")
+                    if msg:
+                        run_state["logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}" + (f": {company}" if company else ""))
+                        run_state["logs"] = run_state["logs"][-200:]
+
+            leads_result = intent_pipe.run(
+                query=niche,
+                target_count=count,
+                output_dir=str(OUTPUTS_DIR),
+                state=state,
+                city=city,
+                region=region,
+                after_date=after_date,
+                progress_callback=report_pipeline_progress,
+                candidate_source="jobs",
+            )
             
             with RUN_STATE_LOCK:
-                run_state["processed_count"] = len(leads_result)
                 run_state["verified_count"] = sum(1 for l in leads_result if l.pipeline_status == "QUALIFIED_CONVERTIBLE")
                 run_state["full_lead_count"] = sum(1 for l in leads_result if l.pipeline_status == "QUALIFIED_CONVERTIBLE")
                 run_state["status"] = "completed"
@@ -514,6 +617,7 @@ def get_leads(
     query: Optional[str] = Query(default=None),
     state: Optional[str] = Query(default=None),
     has_email: Optional[bool] = Query(default=None),
+    has_linkedin: Optional[bool] = Query(default=None),
     has_phone: Optional[bool] = Query(default=None),
     has_website: Optional[bool] = Query(default=None),
     min_confidence: Optional[float] = Query(default=None),
@@ -532,6 +636,8 @@ def get_leads(
         state = None
     if not isinstance(has_email, bool):
         has_email = None
+    if not isinstance(has_linkedin, bool):
+        has_linkedin = None
     if not isinstance(has_phone, bool):
         has_phone = None
     if not isinstance(has_website, bool):
@@ -611,6 +717,11 @@ def get_leads(
     elif has_email is False:
         filtered = [r for r in filtered if not bool(r.get("email"))]
 
+    if has_linkedin is True:
+        filtered = [r for r in filtered if r.get("company_linkedin_url") or r.get("decision_maker_linkedin_url")]
+    elif has_linkedin is False:
+        filtered = [r for r in filtered if not (r.get("company_linkedin_url") or r.get("decision_maker_linkedin_url"))]
+
     if has_phone is True:
         filtered = [r for r in filtered if bool(r.get("phone"))]
     elif has_phone is False:
@@ -657,13 +768,32 @@ def trigger_run(payload: RunRequest, background_tasks: BackgroundTasks) -> Dict[
         if run_state["status"] == "running":
             raise HTTPException(status_code=409, detail="A discovery pipeline run is already in progress.")
 
-    background_tasks.add_task(_run_pipeline_worker, payload.count, payload.state, payload.mode)
+    if payload.mode != "test_batch" and not settings.SERPER_API_KEY.strip():
+        raise HTTPException(status_code=503, detail="SERPER_API_KEY is required for Maps and LinkedIn enrichment. Configure backend/.env and restart the API.")
+    if payload.mode != "test_batch" and not settings.APIFY_API_TOKEN.strip():
+        raise HTTPException(status_code=503, detail="APIFY_API_TOKEN is required for company size and post checks. Configure backend/.env and restart the API.")
+    if payload.mode in {"bookkeeping", "intent"} and not settings.HUNTER_API_KEY.strip():
+        raise HTTPException(status_code=503, detail="HUNTER_API_KEY is required to find and verify decision-maker emails. Configure backend/.env and restart the API.")
+    background_tasks.add_task(
+        _run_pipeline_worker,
+        payload.count,
+        payload.state,
+        payload.city,
+        payload.mode,
+        payload.niche,
+        payload.region,
+        payload.after_date,
+    )
 
     return {
-        "message": f"Pipeline run initiated for {payload.count} companies.",
+        "message": f"Pipeline run initiated for {payload.count} companies in region {payload.region.upper()}.",
         "mode": payload.mode,
         "count": payload.count,
         "state": payload.state,
+        "city": payload.city,
+        "niche": payload.niche,
+        "region": payload.region,
+        "after_date": payload.after_date,
     }
 
 
@@ -746,7 +876,7 @@ def export_leads_excel(
     font_unresolved = Font(name="Segoe UI", size=10, color="64748B")
 
     # Title Banner
-    ws.merge_cells("A1:K1")
+    ws.merge_cells("A1:M1")
     title_cell = ws["A1"]
     title_cell.value = "PROKIZEN GLOBAL LLP — COMPANY LEAD FINDER REPORT"
     title_cell.font = white_title
@@ -755,7 +885,7 @@ def export_leads_excel(
     ws.row_dimensions[1].height = 36
 
     # Subtitle with Summary Stats
-    ws.merge_cells("A2:K2")
+    ws.merge_cells("A2:M2")
     sub_cell = ws["A2"]
     sub_cell.value = (
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')} | "
@@ -772,16 +902,19 @@ def export_leads_excel(
     # Headers
     headers = [
         ("Company Name", 32),
+        ("Region", 12),
         ("Location", 18),
+        ("Employees (10-15)", 18),
         ("Lead Tier", 16),
         ("Status", 14),
+        ("Intent Source", 16),
         ("Official Website", 32),
-        ("Verified Email", 28),
+        ("Company Email (Min Req)", 28),
+        ("Decision Maker", 24),
+        ("Decision Maker Email", 28),
         ("Verified Phone", 20),
         ("Confidence", 14),
-        ("Sources", 22),
-        ("Status Reason", 42),
-        ("Runtime (s)", 12),
+        ("Status Reason", 44),
     ]
 
     header_row_idx = 4
@@ -791,7 +924,7 @@ def export_leads_excel(
         cell = ws.cell(row=header_row_idx, column=col_idx, value=header_text)
         cell.font = white_bold
         cell.fill = sub_header_fill
-        cell.alignment = Alignment(horizontal="center" if "Confidence" in header_text or "Tier" in header_text else "left", vertical="center")
+        cell.alignment = Alignment(horizontal="center" if "Confidence" in header_text or "Tier" in header_text or "Employees" in header_text or "Region" in header_text else "left", vertical="center")
         col_letter = get_column_letter(col_idx)
         ws.column_dimensions[col_letter].width = width
 
@@ -801,72 +934,90 @@ def export_leads_excel(
         tier = lead.get("lead_tier", "UNRESOLVED")
         status_val = lead.get("status", "UNRESOLVED")
         website = lead.get("website", "")
-        email = lead.get("email", "")
+        comp_email = lead.get("company_email", "")
+        dm_email = lead.get("decision_maker_email", "")
         phone = lead.get("phone", "")
+        dm_name = lead.get("decision_maker_name") or lead.get("owner_name") or ""
+        emp_count = lead.get("employee_count") or ""
+        intent_src = lead.get("intent_source") or ""
+        reg = lead.get("region") or "US"
 
         c1 = ws.cell(row=row_idx, column=1, value=lead.get("company_name"))
         c1.font = bold_font
         c1.border = thin_border
 
-        c2 = ws.cell(row=row_idx, column=2, value=lead.get("location"))
+        c2 = ws.cell(row=row_idx, column=2, value=reg)
+        c2.alignment = Alignment(horizontal="center", vertical="center")
         c2.font = regular_font
         c2.border = thin_border
 
-        c3 = ws.cell(row=row_idx, column=3, value=tier)
-        c3.alignment = Alignment(horizontal="center", vertical="center")
+        c3 = ws.cell(row=row_idx, column=3, value=lead.get("location"))
+        c3.font = regular_font
         c3.border = thin_border
-        if tier == "FULL_LEAD":
-            c3.fill = fill_full_lead
-            c3.font = font_full_lead
-        elif tier == "WEBSITE_ONLY":
-            c3.fill = fill_web_only
-            c3.font = font_web_only
-        elif status_val == "NEEDS_REVIEW":
-            c3.fill = fill_review
-            c3.font = font_review
-        else:
-            c3.fill = fill_unresolved
-            c3.font = font_unresolved
 
-        c4 = ws.cell(row=row_idx, column=4, value=status_val)
+        c4 = ws.cell(row=row_idx, column=4, value=emp_count)
+        c4.alignment = Alignment(horizontal="center", vertical="center")
         c4.font = regular_font
         c4.border = thin_border
 
-        c5 = ws.cell(row=row_idx, column=5, value=website)
+        c5 = ws.cell(row=row_idx, column=5, value=tier)
+        c5.alignment = Alignment(horizontal="center", vertical="center")
         c5.border = thin_border
-        if website:
-            c5.font = link_font
-            if website.startswith("http"):
-                c5.hyperlink = website
+        if tier == "FULL_LEAD":
+            c5.fill = fill_full_lead
+            c5.font = font_full_lead
+        elif tier in ("WEBSITE_ONLY", "COMPANY_EMAIL_ONLY"):
+            c5.fill = fill_web_only
+            c5.font = font_web_only
+        elif status_val == "NEEDS_REVIEW":
+            c5.fill = fill_review
+            c5.font = font_review
         else:
-            c5.font = regular_font
+            c5.fill = fill_unresolved
+            c5.font = font_unresolved
 
-        c6 = ws.cell(row=row_idx, column=6, value=email)
+        c6 = ws.cell(row=row_idx, column=6, value=status_val)
         c6.font = regular_font
         c6.border = thin_border
 
-        c7 = ws.cell(row=row_idx, column=7, value=phone)
+        c7 = ws.cell(row=row_idx, column=7, value=intent_src)
         c7.font = regular_font
         c7.border = thin_border
 
-        conf = lead.get("confidence", 0.0)
-        c8 = ws.cell(row=row_idx, column=8, value=f"{conf:.2f}")
-        c8.alignment = Alignment(horizontal="center", vertical="center")
-        c8.font = regular_font
+        c8 = ws.cell(row=row_idx, column=8, value=website)
         c8.border = thin_border
+        if website:
+            c8.font = link_font
+            if website.startswith("http"):
+                c8.hyperlink = website
+        else:
+            c8.font = regular_font
 
-        c9 = ws.cell(row=row_idx, column=9, value=lead.get("source", ""))
+        c9 = ws.cell(row=row_idx, column=9, value=comp_email)
         c9.font = regular_font
         c9.border = thin_border
 
-        c10 = ws.cell(row=row_idx, column=10, value=lead.get("status_reason", ""))
+        c10 = ws.cell(row=row_idx, column=10, value=dm_name)
         c10.font = regular_font
         c10.border = thin_border
 
-        c11 = ws.cell(row=row_idx, column=11, value=lead.get("elapsed_seconds", 0.0))
-        c11.alignment = Alignment(horizontal="center", vertical="center")
+        c11 = ws.cell(row=row_idx, column=11, value=dm_email)
         c11.font = regular_font
         c11.border = thin_border
+
+        c12 = ws.cell(row=row_idx, column=12, value=phone)
+        c12.font = regular_font
+        c12.border = thin_border
+
+        conf = lead.get("confidence", 0.0)
+        c13 = ws.cell(row=row_idx, column=13, value=f"{conf:.2f}")
+        c13.alignment = Alignment(horizontal="center", vertical="center")
+        c13.font = regular_font
+        c13.border = thin_border
+
+        c14 = ws.cell(row=row_idx, column=14, value=lead.get("status_reason", ""))
+        c14.font = regular_font
+        c14.border = thin_border
 
     # Freeze panes below headers
     ws.freeze_panes = "A5"
@@ -932,6 +1083,11 @@ def export_leads_csv(
             "email": str(lead.get("email", "") or ""),
             "email_status": str(lead.get("email_status", "UNRESOLVED") or "UNRESOLVED"),
             "email_source": str(lead.get("email_source", "") or ""),
+            "decision_maker_name": str(lead.get("decision_maker_name", "") or ""),
+            "decision_maker_title": str(lead.get("decision_maker_title", "") or ""),
+            "decision_maker_linkedin_url": str(lead.get("decision_maker_linkedin_url", "") or ""),
+            "has_recent_linkedin_post": str(bool(lead.get("has_recent_linkedin_post", False))),
+            "email_confidence": str(lead.get("email_confidence", "") or ""),
             "phone": str(lead.get("phone", "") or ""),
             "phone_status": str(lead.get("phone_status", "UNRESOLVED") or "UNRESOLVED"),
             "phone_source": str(lead.get("phone_source", "") or ""),

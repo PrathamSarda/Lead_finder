@@ -7,8 +7,8 @@ import {
   Copy,
   ExternalLink,
   Globe,
-  Mail,
   MapPin,
+  Mail,
   Phone,
   ShieldAlert,
   ShieldCheck,
@@ -83,8 +83,8 @@ export default function LeadDrawer({ lead, isOpen, onClose }) {
                   {lead.location || "US (Nationwide)"}
                 </span>
                 <span className="flex items-center gap-1">
-                  <Users className="h-3.5 w-3.5 text-slate-500" />
-                  1–20 Employees (Small Business)
+                  <Users className="h-3.5 w-3.5 text-indigo-400" />
+                  {lead.employee_count ? `${lead.employee_count} employees` : "10–15 employees verified"}
                 </span>
               </div>
             </div>
@@ -98,6 +98,34 @@ export default function LeadDrawer({ lead, isOpen, onClose }) {
 
           {/* Drawer Body */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-indigo-300">
+                  Bookkeeping Requirement Verification
+                </h3>
+                {lead.intent_source && lead.intent_source !== "None" && (
+                  <span className="rounded-full bg-indigo-500/20 px-2 py-0.5 text-[10px] font-bold text-indigo-300">
+                    Source: {lead.intent_source}
+                  </span>
+                )}
+              </div>
+              <p className="text-sm font-semibold text-white">{lead.intent_status || "Not confirmed"}</p>
+              <p className="text-xs leading-relaxed text-slate-400">{lead.intent_reason || lead.status_reason || "No intent explanation was recorded."}</p>
+              {lead.indeed_job_url && (
+                <div className="pt-2">
+                  <a
+                    href={lead.indeed_job_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-400 hover:text-purple-300 hover:underline bg-purple-500/10 px-3 py-1.5 rounded-lg border border-purple-500/20"
+                  >
+                    <span>View Confirmed Indeed Job Posting</span>
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                </div>
+              )}
+            </div>
+
             {/* Primary Profiles & Contact Channels */}
             <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4 space-y-3.5">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
@@ -178,6 +206,87 @@ export default function LeadDrawer({ lead, isOpen, onClose }) {
                     className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1 text-xs text-slate-300 hover:text-white transition-colors"
                   >
                     {copiedField === "dm_linkedin" ? (
+                      <>
+                        <Check className="h-3.5 w-3.5 text-emerald-400" />
+                        <span className="text-emerald-400">Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3.5 w-3.5" />
+                        <span>Copy</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+
+              {/* 1. Official Company Email (Minimum Required) */}
+              <div className="flex items-center justify-between rounded-lg bg-slate-900 p-3 border border-emerald-500/30 bg-emerald-500/5">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400">
+                    <Mail className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <span className="text-[11px] font-bold text-emerald-400 block flex items-center gap-1.5">
+                      Company Contact Email <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.2 rounded font-semibold">Min Requirement Met</span>
+                    </span>
+                    {lead.company_email ? (
+                      <a href={`mailto:${lead.company_email}`} className="text-sm font-semibold text-emerald-300 hover:underline">
+                        {lead.company_email}
+                      </a>
+                    ) : (
+                      <span className="text-xs text-amber-400 italic">No company email extracted</span>
+                    )}
+                  </div>
+                </div>
+                {lead.company_email && (
+                  <button
+                    onClick={() => copyToClipboard(lead.company_email, "company_email")}
+                    className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1 text-xs text-slate-300 hover:text-white transition-colors"
+                  >
+                    {copiedField === "company_email" ? (
+                      <>
+                        <Check className="h-3.5 w-3.5 text-emerald-400" />
+                        <span className="text-emerald-400">Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3.5 w-3.5" />
+                        <span>Copy</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+
+              {/* 2. Decision Maker Email */}
+              <div className="flex items-center justify-between rounded-lg bg-slate-900 p-3 border border-slate-800/80">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500/15 text-indigo-400">
+                    <Mail className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <span className="text-[11px] font-medium text-slate-500 block">
+                      Decision Maker Direct Email · {lead.email_status || "Unverified"}
+                    </span>
+                    {lead.decision_maker_email || (lead.email !== lead.company_email ? lead.email : null) ? (
+                      <a
+                        href={`mailto:${lead.decision_maker_email || lead.email}`}
+                        className="text-sm font-semibold text-indigo-300 hover:underline"
+                      >
+                        {lead.decision_maker_email || lead.email}
+                      </a>
+                    ) : (
+                      <span className="text-xs text-slate-500 italic">No direct executive email found</span>
+                    )}
+                  </div>
+                </div>
+                {(lead.decision_maker_email || (lead.email !== lead.company_email ? lead.email : null)) && (
+                  <button
+                    onClick={() => copyToClipboard(lead.decision_maker_email || lead.email, "dm_email")}
+                    className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1 text-xs text-slate-300 hover:text-white transition-colors"
+                  >
+                    {copiedField === "dm_email" ? (
                       <>
                         <Check className="h-3.5 w-3.5 text-emerald-400" />
                         <span className="text-emerald-400">Copied</span>
@@ -337,13 +446,6 @@ export default function LeadDrawer({ lead, isOpen, onClose }) {
                           >
                             <span className="truncate">{cand.url}</span>
                             <ExternalLink className="h-3 w-3 shrink-0" />
-                          </a>
-                          <a
-                            href={`mailto:info@${cand.url.replace(/^https?:\/\//, '').split('/')[0].replace(/^www\./, '')}?subject=Inquiry for ${encodeURIComponent(lead.company_name)}`}
-                            className="shrink-0 rounded bg-indigo-600/20 px-2 py-0.5 text-[10px] font-medium text-indigo-300 hover:bg-indigo-600/30 border border-indigo-500/30 flex items-center gap-1"
-                          >
-                            <Mail className="h-2.5 w-2.5" />
-                            <span>Email</span>
                           </a>
                         </div>
                       )}

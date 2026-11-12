@@ -1,19 +1,14 @@
-"""
-Employee Size Qualification & LinkedIn Feed Extraction via Apify.
-Uses Apify actors:
-- quorre/linkedin-company-scraper (or equivalent) for company profile & employeeCount
-- automation-lab/linkedin-company-posts-scraper for extracting 5-10 recent post texts
-Includes graceful fallback/mock mode when APIFY_API_TOKEN is not configured.
-"""
+"""Real Apify LinkedIn company size and public post enrichment."""
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
 try:
     from apify_client import ApifyClient
-except ImportError:
+except ImportError:  # The API gives a clear runtime error when the dependency is missing.
     ApifyClient = None
 
 
@@ -29,189 +24,99 @@ class LinkedInCompanyProfile:
 
 
 class ApifyLinkedInEnricher:
-    """Qualifies company size (<20 employees) and extracts public post texts via Apify."""
+    MIN_EMPLOYEES = 10
+    MAX_EMPLOYEES = 15
 
-    COMPANY_SCRAPER_ACTOR = "quorre/linkedin-company-scraper"
-    POSTS_SCRAPER_ACTOR = "oAf7819001ttSmFDv"
-    MAX_EMPLOYEES = 20
-
-    def __init__(self, token: str | None = None):
-        self.token = (token or os.getenv("APIFY_API_TOKEN", "")).strip()
-        self.client = ApifyClient(self.token) if (self.token and ApifyClient) else None
-
-    def qualify_and_extract_posts(
+    def __init__(
         self,
-        company_name: str,
-        domain: str | None = None,
-        linkedin_url: str | None = None,
-    ) -> LinkedInCompanyProfile:
-        """
-        1. Checks company employee count range.
-        2. Extracts 5-10 recent post texts using Apify posts scraper for the verified LinkedIn company.
-        3. If count >= 20, aborts downstream calls immediately.
-        """
+        token: str | None = None,
+        company_scraper_actor: str | None = None,
+        posts_scraper_actor: str | None = None,
+        min_employees: int = 10,
+        max_employees: int = 15,
+    ):
+        self.token = (token or os.getenv("APIFY_API_TOKEN", "")).strip()
+        self.company_scraper_actor = company_scraper_actor or os.getenv("APIFY_LINKEDIN_COMPANY_ACTOR", "socialdataapi/linkedin-company-scraper")
+        self.posts_scraper_actor = posts_scraper_actor or os.getenv("APIFY_LINKEDIN_POSTS_ACTOR", "atomus/linkedin-company-posts-scraper")
+        self.client = ApifyClient(self.token) if self.token and ApifyClient else None
+        self.min_employees = min_employees
+        self.max_employees = max_employees
+
+    def _run_items(self, actor: str, run_input: dict[str, Any]) -> list[dict[str, Any]]:
         if not self.client:
-            return self._mock_profile(company_name, domain)
+            raise RuntimeError("Apify token/client is not configured.")
+        run = self.client.actor(actor).call(run_input=run_input)
+        if not run:
+            raise RuntimeError(f"Apify actor {actor} returned no run.")
+        status = run.get("status") if isinstance(run, dict) else None
+        if status and status != "SUCCEEDED":
+            raise RuntimeError(f"Apify actor {actor} finished with status {status}.")
+        dataset_id = run.get("defaultDatasetId") if isinstance(run, dict) else None
+        if not dataset_id:
+            raise RuntimeError(f"Apify actor {actor} returned no dataset.")
+        return list(self.client.dataset(dataset_id).iterate_items())
 
-        # 1. Fetch Company Posts directly using verified LinkedIn URL
-        target_li = linkedin_url
-        recent_posts: list[str] = []
-
+    @staticmethod
+    def _number(value: Any) -> int | None:
+        if value is None:
+            return None
         try:
-            if target_li:
-                posts_input = {
-                    "companyUrls": [target_li],
-                    "maxPostsPerCompany": 8,
-                    "maxCompanies": 1,
-                }
-                posts_run = self.client.actor(self.POSTS_SCRAPER_ACTOR).call(run_input=posts_input)
-                dataset_id = (
-                    getattr(posts_run, "default_dataset_id", None)
-                    or (posts_run.get("defaultDatasetId") if isinstance(posts_run, dict) else None)
-                )
-                post_items = list(self.client.dataset(dataset_id).iterate_items()) if dataset_id else []
-                for p in post_items:
-                    text = p.get("text") or p.get("headline") or p.get("content")
-                    posted_date = p.get("datePublished") or p.get("scrapedAt")
-                    if text and text.strip():
-                        if posted_date:
-                            recent_posts.append(f"[Posted: {posted_date}] {text.strip()}")
-                        else:
-                            recent_posts.append(text.strip())
+            return int(str(value).replace(",", "").strip())
+        except (TypeError, ValueError):
+            return None
 
-            return LinkedInCompanyProfile(
-                company_name=company_name,
-                linkedin_url=target_li,
-                employee_count=None,
-                employee_range="1-20",
-                passed_size_gate=True,
-                recent_posts=recent_posts,
-            )
+    @classmethod
+    def _size(
+        cls,
+        profile: dict[str, Any],
+        min_employees: int | None = None,
+        max_employees: int | None = None,
+    ) -> tuple[int | None, str | None, bool]:
+        min_emp = min_employees if min_employees is not None else cls.MIN_EMPLOYEES
+        max_emp = max_employees if max_employees is not None else cls.MAX_EMPLOYEES
 
-        except Exception as exc:
-            print(f"[Apify] Warning for {company_name}: {exc}. Using fallback.")
-            return self._mock_profile(company_name, domain)
+        count = cls._number(profile.get("employeeCount") or profile.get("employeesCount") or profile.get("employee_count"))
+        size_text = str(profile.get("companySize") or profile.get("employeeRange") or profile.get("size") or "").strip()
+        if count is not None:
+            return count, size_text or str(count), (min_emp <= count <= max_emp)
+        bounds = re.search(r"(\d[\d,]*)\s*(?:-|to|–)\s*(\d[\d,]*)", size_text, re.I)
+        if bounds:
+            lower, upper = int(bounds.group(1).replace(",", "")), int(bounds.group(2).replace(",", ""))
+            if upper < min_emp or lower > max_emp:
+                return None, size_text, False
+            return None, size_text, True
+        plus = re.search(r"(\d[\d,]*)\s*\+", size_text)
+        if plus:
+            lower = int(plus.group(1).replace(",", ""))
+            if lower > max_emp:
+                return None, size_text, False
+            return None, size_text, True
+        return None, size_text or "UNKNOWN", False
 
-    def _mock_profile(self, company_name: str, domain: str | None) -> LinkedInCompanyProfile:
-        """Realistic simulated LinkedIn profile for testing without live Apify credits."""
-        c_lower = company_name.lower()
-        if "logistics" in c_lower or "austin commercial" in c_lower:
-            # Simulate a 35-person company to test size gate dropping
-            return LinkedInCompanyProfile(
-                company_name=company_name,
-                linkedin_url=f"https://www.linkedin.com/company/{domain.split('.')[0] if domain else 'company'}",
-                employee_count=35,
-                employee_range="SIZE_11_50",
-                passed_size_gate=False,
-                recent_posts=[],
-            )
-
-        if "apex plumbing" in c_lower:
-            # Simulate small business hiring financial/scaling help
-            return LinkedInCompanyProfile(
-                company_name=company_name,
-                linkedin_url=f"https://www.linkedin.com/company/apex-plumbing-austin",
-                employee_count=8,
-                employee_range="SIZE_1_10",
-                passed_size_gate=True,
-                recent_posts=[
-                    "We're growing fast! Looking for an experienced part-time bookkeeper or accountant to manage QuickBooks and tax prep as we expand our commercial plumbing fleet.",
-                    "Proud of our crew for completing the South Congress project ahead of schedule. Great work team!",
-                    "Annual tax season is coming up. Preparing our financial records and expanding operations into Round Rock next quarter.",
-                ],
-            )
-
-        if "cedar park" in c_lower or "hvac" in c_lower:
-            # Simulate HVAC business expanding and hiring bookkeeping/payroll help
-            return LinkedInCompanyProfile(
-                company_name=company_name,
-                linkedin_url=f"https://www.linkedin.com/company/cedar-park-hvac-pros",
-                employee_count=12,
-                employee_range="SIZE_11_50",
-                passed_size_gate=True,
-                recent_posts=[
-                    "Record summer heat wave! We are expanding operations across Williamson County and need a reliable full-charge bookkeeper to manage vendor billing and QuickBooks payroll.",
-                    "Hiring 3 senior HVAC technicians this week. Great signing bonuses available!",
-                    "Organizing our annual financial statements ahead of Q4 audit.",
-                ],
-            )
-
-        if "capitol city" in c_lower or "landscaping" in c_lower:
-            # Simulate Landscaping company needing financial/tax assistance
-            return LinkedInCompanyProfile(
-                company_name=company_name,
-                linkedin_url=f"https://www.linkedin.com/company/capitol-city-landscaping",
-                employee_count=14,
-                employee_range="SIZE_11_50",
-                passed_size_gate=True,
-                recent_posts=[
-                    "Seeking a local CPA or bookkeeping firm to assist with end-of-year tax prep and financial reporting as we purchase new commercial mowing trailers.",
-                    "Celebrating 5 years serving commercial real estate properties in Austin!",
-                ],
-            )
-
-        if "blue ridge" in c_lower:
-            # Simulate small business with neutral posts
-            return LinkedInCompanyProfile(
-                company_name=company_name,
-                linkedin_url=f"https://www.linkedin.com/company/blueridgefa",
-                employee_count=5,
-                employee_range="SIZE_1_10",
-                passed_size_gate=True,
-                recent_posts=[
-                    "Markets rebounded this week following federal rate remarks. Here is our monthly market outlook for private investors.",
-                    "Enjoying the Austin Chamber of Commerce networking lunch today.",
-                ],
-            )
-
-        if "hill country" in c_lower or "electric" in c_lower:
-            return LinkedInCompanyProfile(
-                company_name=company_name,
-                linkedin_url=f"https://www.linkedin.com/company/hill-country-electric",
-                employee_count=7,
-                employee_range="SIZE_1_10",
-                passed_size_gate=True,
-                recent_posts=[
-                    "We are hiring a part-time bookkeeper to manage QuickBooks invoices and monthly reconciliation as our commercial service department expands.",
-                    "Great job team on finishing the downtown retrofit!",
-                ],
-            )
-
-        if "travis roofing" in c_lower or "roofing" in c_lower:
-            return LinkedInCompanyProfile(
-                company_name=company_name,
-                linkedin_url=f"https://www.linkedin.com/company/travis-roofing-tx",
-                employee_count=9,
-                employee_range="SIZE_1_10",
-                passed_size_gate=True,
-                recent_posts=[
-                    "Busy storm season in central Texas! Looking for an accountant or CPA to assist with tax prep, payroll, and 1099 contractor payments.",
-                    "Safety inspection completed with zero incidents this month.",
-                ],
-            )
-
-        if "oak springs" in c_lower or "auto" in c_lower:
-            return LinkedInCompanyProfile(
-                company_name=company_name,
-                linkedin_url=f"https://www.linkedin.com/company/oak-springs-auto",
-                employee_count=6,
-                employee_range="SIZE_1_10",
-                passed_size_gate=True,
-                recent_posts=[
-                    "Expanding operations into our second shop bay next month! Transitioning to QuickBooks Online and need financial assistance.",
-                    "Now certified for electric vehicle maintenance.",
-                ],
-            )
-
-        # Default small business
+    def qualify_and_extract_posts(self, company_name: str, domain: str | None = None, linkedin_url: str | None = None) -> LinkedInCompanyProfile:
+        if not linkedin_url:
+            return LinkedInCompanyProfile(company_name, None, None, "UNKNOWN", False)
+        profiles = self._run_items(self.company_scraper_actor, {"urls": [linkedin_url], "maxRetries": 2})
+        if not profiles:
+            raise RuntimeError("Apify returned no LinkedIn company profile.")
+        profile = profiles[0]
+        if profile.get("success") is False or profile.get("status") in {"error", "failed", "not_found"}:
+            raise RuntimeError(str(profile.get("error") or profile.get("statusMessage") or "LinkedIn company profile could not be read."))
+        employee_count, employee_range, passed = self._size(profile, min_employees=self.min_employees, max_employees=self.max_employees)
+        posts: list[str] = []
+        if passed:
+            items = self._run_items(self.posts_scraper_actor, {"companies": [linkedin_url], "maxPosts": 8, "includeComments": False})
+            for item in items[:10]:
+                text = item.get("text") or item.get("postText") or item.get("content")
+                posted = item.get("datePublished") or item.get("postedAt") or item.get("publishedAt") or item.get("postedAgo")
+                if text and str(text).strip():
+                    posts.append(f"[Posted: {posted}] {str(text).strip()}" if posted else str(text).strip())
         return LinkedInCompanyProfile(
-            company_name=company_name,
-            linkedin_url=f"https://www.linkedin.com/company/{domain.split('.')[0] if domain else 'company'}",
-            employee_count=6,
-            employee_range="SIZE_1_10",
-            passed_size_gate=True,
-            recent_posts=[
-                "Excited to welcome 2 new technicians to our team this month! Growing fast across the city.",
-                "Wishing all our clients and partners a wonderful holiday season.",
-            ],
+            company_name=str(profile.get("name") or profile.get("companyName") or company_name),
+            linkedin_url=linkedin_url,
+            employee_count=employee_count,
+            employee_range=employee_range,
+            passed_size_gate=passed,
+            recent_posts=posts,
+            raw_data=profile,
         )

@@ -3,6 +3,7 @@ import {
   AlertCircle,
   CheckCircle2,
   ChevronDown,
+  ChevronUp,
   Download,
   FileSpreadsheet,
   Globe,
@@ -16,6 +17,13 @@ import {
   Zap,
 } from "lucide-react";
 import { leadsApi } from "../../api/leads";
+
+const TARGET_REGIONS = [
+  { code: "US", name: "United States (US)", flag: "🇺🇸", desc: "US FMCSA & Google Maps" },
+  { code: "UK", name: "United Kingdom (UK)", flag: "🇬🇧", desc: "UK Companies & Indeed.co.uk" },
+  { code: "AU", name: "Australia (AU)", flag: "🇦🇺", desc: "Australian SMBs & au.Indeed.com" },
+  { code: "CA", name: "Canada (CA)", flag: "🇨🇦", desc: "Canadian SMBs & ca.Indeed.com" },
+];
 
 const US_STATES = [
   { code: "", name: "All US States (Random Sample)" },
@@ -40,7 +48,12 @@ const PRESET_COUNTS = [
 export default function RunModal({ isOpen, onClose, onRunComplete }) {
   const [count, setCount] = useState(10);
   const [selectedState, setSelectedState] = useState("");
-  const [mode, setMode] = useState("bookkeeping"); // 'bookkeeping' | 'discovery' | 'test_batch'
+  const [city, setCity] = useState("");
+  const [selectedRegions, setSelectedRegions] = useState(["US"]);
+  const [showRegionOptions, setShowRegionOptions] = useState(false);
+  const [afterDate, setAfterDate] = useState("");
+  const [mode, setMode] = useState("bookkeeping");
+  const [niche, setNiche] = useState("bookkeeping, accounting, tax preparation, payroll, or scaling support");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [runState, setRunState] = useState({
     status: "idle",
@@ -55,7 +68,15 @@ export default function RunModal({ isOpen, onClose, onRunComplete }) {
     error: null,
   });
 
-  const logsEndRef = useRef(null);
+  const terminalLogsContainerRef = useRef(null);
+  const modalBodyRef = useRef(null);
+
+  // Keep modal scroll position pinned at top whenever modal opens
+  useEffect(() => {
+    if (isOpen && modalBodyRef.current) {
+      modalBodyRef.current.scrollTop = 0;
+    }
+  }, [isOpen]);
 
   // Poll run status while open
   useEffect(() => {
@@ -84,10 +105,13 @@ export default function RunModal({ isOpen, onClose, onRunComplete }) {
     };
   }, [isOpen, onRunComplete]);
 
-  // Auto scroll logs window
+  // Auto-scroll ONLY inside the internal terminal logs window (never scroll parent modal or page)
   useEffect(() => {
-    if (logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: "smooth" });
+    const el = terminalLogsContainerRef.current;
+    if (!el) return;
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 70;
+    if (isNearBottom) {
+      el.scrollTop = el.scrollHeight;
     }
   }, [runState.logs]);
 
@@ -105,10 +129,15 @@ export default function RunModal({ isOpen, onClose, onRunComplete }) {
   const handleStartRun = async () => {
     setIsSubmitting(true);
     try {
+      const regionParam = selectedRegions.length > 0 ? selectedRegions.join(",") : "US";
       await leadsApi.triggerRun({
         count: Number(count),
         state: selectedState || null,
+        city: city.trim() || null,
         mode,
+        niche,
+        region: regionParam,
+        after_date: afterDate || null,
       });
       // immediate refresh
       const data = await leadsApi.getRunStatus();
@@ -118,6 +147,17 @@ export default function RunModal({ isOpen, onClose, onRunComplete }) {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const toggleRegion = (code) => {
+    setSelectedRegions((prev) => {
+      if (prev.includes(code)) {
+        const next = prev.filter((c) => c !== code);
+        return next.length > 0 ? next : ["US"];
+      } else {
+        return [...prev, code];
+      }
+    });
   };
 
   const handleCancelRun = async () => {
@@ -165,15 +205,15 @@ export default function RunModal({ isOpen, onClose, onRunComplete }) {
         </div>
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div ref={modalBodyRef} className="flex-1 overflow-y-auto p-6 space-y-6">
           {/* Configuration Form (Only enabled when not currently running) */}
           <div className={`space-y-5 ${isRunning ? "opacity-60 pointer-events-none" : ""}`}>
-            {/* Mode Selector */}
+              {/* Active end-to-end workflow */}
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                Pipeline Mode
+                Workflow
               </label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 gap-3">
                 <button
                   type="button"
                   onClick={() => setMode("bookkeeping")}
@@ -185,56 +225,207 @@ export default function RunModal({ isOpen, onClose, onRunComplete }) {
                 >
                   <div className="flex items-center gap-2 font-semibold text-sm">
                     <Sparkles className="h-4 w-4 text-emerald-400" />
-                    <span>Bookkeeping Intent</span>
+                    <span>Hiring Intent Fast Mode: Companies Needing Bookkeeping Services</span>
                   </div>
                   <p className="mt-1 text-xs text-slate-400">
-                    Finds small businesses (&lt;20 staff) actively hiring financial roles, expanding, or needing bookkeeping.
-                  </p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setMode("discovery")}
-                  className={`flex flex-col text-left p-3.5 rounded-xl border transition-all ${
-                    mode === "discovery"
-                      ? "border-indigo-500 bg-indigo-500/15 text-white shadow-sm shadow-indigo-500/20"
-                      : "border-slate-800 bg-slate-950/50 text-slate-400 hover:border-slate-700 hover:text-slate-200"
-                  }`}
-                >
-                  <div className="flex items-center gap-2 font-semibold text-sm">
-                    <Globe className="h-4 w-4 text-indigo-400" />
-                    <span>FMCSA Registry</span>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-400">
-                    Discovers US small logistics companies from the federal registry.
-                  </p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setMode("test_batch")}
-                  className={`flex flex-col text-left p-3.5 rounded-xl border transition-all ${
-                    mode === "test_batch"
-                      ? "border-purple-500 bg-purple-500/15 text-white shadow-sm shadow-purple-500/20"
-                      : "border-slate-800 bg-slate-950/50 text-slate-400 hover:border-slate-700 hover:text-slate-200"
-                  }`}
-                >
-                  <div className="flex items-center gap-2 font-semibold text-sm">
-                    <Zap className="h-4 w-4 text-purple-400" />
-                    <span>Test Benchmark</span>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-400">
-                    Fast automated test benchmark across curated companies.
+                    Directly scans public Indeed & LinkedIn job postings for companies actively hiring bookkeepers, accountants, and QuickBooks specialists. Filters for 10–15 headcount and extracts verified corporate & decision-maker emails.
                   </p>
                 </button>
               </div>
+            </div>
+
+            {/* Target Region / Country Expansion (Default: US) */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Target Region / Country
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowRegionOptions((prev) => !prev)}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition-colors"
+                >
+                  <Globe className="h-3.5 w-3.5" />
+                  <span>{showRegionOptions ? "Hide Country Options" : "Change Region / Expand"}</span>
+                  <ChevronDown className={`h-3 w-3 transition-transform ${showRegionOptions ? "rotate-180" : ""}`} />
+                </button>
+              </div>
+
+              {/* Default Region View (Clean, non-distracting) */}
+              {!showRegionOptions ? (
+                <div className="flex items-center justify-between p-3.5 rounded-xl border border-slate-800 bg-slate-950/60 hover:border-slate-700 transition-all">
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1.5">
+                      {selectedRegions.map((code) => {
+                        const reg = TARGET_REGIONS.find((r) => r.code === code) || { flag: "🇺🇸", name: code };
+                        return (
+                          <span
+                            key={code}
+                            className="inline-flex items-center gap-1.5 text-xs bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-700/80 font-bold text-slate-100 shadow-sm"
+                          >
+                            <span className="text-base">{reg.flag}</span>
+                            <span>{code}</span>
+                          </span>
+                        );
+                      })}
+                    </div>
+                    <div className="text-xs">
+                      {selectedRegions.length === 1 && selectedRegions[0] === "US" ? (
+                        <div className="text-slate-300">
+                          <span className="text-emerald-400 font-semibold mr-1.5">Default Region:</span>
+                          <span>United States (FMCSA & Google Maps)</span>
+                        </div>
+                      ) : (
+                        <div className="text-slate-300">
+                          <span className="text-indigo-400 font-semibold mr-1.5">Custom Regions:</span>
+                          <span>Targeting {selectedRegions.join(", ")}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowRegionOptions(true)}
+                    className="rounded-lg border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-700 hover:text-white transition-colors"
+                  >
+                    Change
+                  </button>
+                </div>
+              ) : (
+                /* Expanded Region Selector (Allows Client to select which all regions they want) */
+                <div className="space-y-3 rounded-xl border border-indigo-500/40 bg-slate-950/80 p-3.5 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-300 font-medium">
+                      Select which all regions you want to search:
+                    </span>
+                    {!(selectedRegions.length === 1 && selectedRegions[0] === "US") && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedRegions(["US"])}
+                        className="text-[11px] font-semibold text-amber-400 hover:text-amber-300 underline"
+                      >
+                        Reset to US (Default)
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {TARGET_REGIONS.map((r) => {
+                      const isSelected = selectedRegions.includes(r.code);
+                      return (
+                        <button
+                          key={r.code}
+                          type="button"
+                          onClick={() => toggleRegion(r.code)}
+                          className={`flex flex-col items-start p-2.5 rounded-xl border transition-all text-left ${
+                            isSelected
+                              ? "border-indigo-500 bg-indigo-500/20 text-white shadow-sm shadow-indigo-500/20"
+                              : "border-slate-800 bg-slate-900/40 text-slate-400 hover:border-slate-700 hover:text-slate-200"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between w-full">
+                            <span className="text-lg">{r.flag}</span>
+                            {isSelected ? (
+                              <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                                Active
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-slate-500">+ Select</span>
+                            )}
+                          </div>
+                          <span className="text-xs font-bold mt-1 text-slate-100">{r.name}</span>
+                          <span className="text-[10px] text-slate-400 leading-tight mt-0.5">{r.desc}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-800/80 text-[11px] text-slate-400">
+                    <span>
+                      Active: <strong className="text-slate-200">{selectedRegions.join(", ")}</strong>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowRegionOptions(false)}
+                      className="text-xs font-semibold text-indigo-400 hover:text-indigo-300"
+                    >
+                      Done Selecting
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Date Option: Services Needed After Date */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Services Needed On / After Date (LinkedIn & Indeed)
+                </label>
+                {afterDate && (
+                  <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                    After {afterDate}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="date"
+                  value={afterDate}
+                  onChange={(e) => setAfterDate(e.target.value)}
+                  className="rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2 text-sm text-slate-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 flex-1"
+                />
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setAfterDate("")}
+                    className={`rounded-lg px-2.5 py-2 text-xs font-medium border transition-all ${
+                      !afterDate
+                        ? "border-emerald-500 bg-emerald-500/20 text-emerald-300 font-semibold"
+                        : "border-slate-800 bg-slate-950/40 text-slate-400 hover:bg-slate-800"
+                    }`}
+                  >
+                    Any (Last 90d)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() - 30);
+                      setAfterDate(d.toISOString().slice(0, 10));
+                    }}
+                    className="rounded-lg px-2.5 py-2 text-xs font-medium border border-slate-800 bg-slate-950/40 text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-all"
+                  >
+                    Last 30 Days
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() - 60);
+                      setAfterDate(d.toISOString().slice(0, 10));
+                    }}
+                    className="rounded-lg px-2.5 py-2 text-xs font-medium border border-slate-800 bg-slate-950/40 text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-all"
+                  >
+                    Last 60 Days
+                  </button>
+                </div>
+              </div>
+              <p className="mt-1.5 text-[11px] text-slate-400">
+                Only confirms companies if their LinkedIn posts or Indeed job ads indicate bookkeeping services needed on or after this date.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Target niche / buying intent</label>
+              <input value={niche} onChange={(event) => setNiche(event.target.value)} maxLength={200} className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-sm text-slate-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" placeholder="Bookkeeping, payroll, tax prep, or scaling support" />
             </div>
 
             {/* Company Count Selector */}
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Number of Companies to Find & Verify
+                  Qualified Leads Target
                 </label>
                 <span className="text-sm font-bold text-indigo-400 bg-indigo-500/15 px-2.5 py-0.5 rounded-lg border border-indigo-500/30">
                   {count} Companies
@@ -273,6 +464,16 @@ export default function RunModal({ isOpen, onClose, onRunComplete }) {
 
             {/* US State Filter */}
             <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                Filter by City (Optional)
+              </label>
+              <input
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                maxLength={100}
+                placeholder="Austin"
+                className="mb-3 w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-sm text-slate-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
                 Filter by State (Optional)
               </label>
@@ -345,7 +546,10 @@ export default function RunModal({ isOpen, onClose, onRunComplete }) {
               </span>
             </div>
 
-            <div className="terminal-window rounded-xl p-3 h-48 overflow-y-auto text-xs leading-relaxed text-slate-300 space-y-1">
+            <div
+              ref={terminalLogsContainerRef}
+              className="terminal-window rounded-xl p-3 h-48 overflow-y-auto text-xs leading-relaxed text-slate-300 space-y-1"
+            >
               {runState.logs.length === 0 ? (
                 <div className="flex h-full items-center justify-center text-slate-600 italic">
                   Pipeline logs will appear here in real-time when execution starts...
@@ -367,7 +571,6 @@ export default function RunModal({ isOpen, onClose, onRunComplete }) {
                   );
                 })
               )}
-              <div ref={logsEndRef} />
             </div>
           </div>
         </div>

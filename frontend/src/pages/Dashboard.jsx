@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
+  Briefcase,
   Building2,
   Check,
   CheckCircle2,
@@ -70,7 +71,10 @@ export default function Dashboard() {
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState("");
   const [tierFilter, setTierFilter] = useState("ALL");
-  const [onlyWithEmail, setOnlyWithEmail] = useState(false);
+  const [intentSourceFilter, setIntentSourceFilter] = useState("ALL");
+  const [regionFilter, setRegionFilter] = useState("ALL");
+  const [emailFilter, setEmailFilter] = useState("ALL");
+  const [onlyWithLinkedIn, setOnlyWithLinkedIn] = useState(false);
   const [onlyWithPhone, setOnlyWithPhone] = useState(false);
   const [onlyHighConfidence, setOnlyHighConfidence] = useState(false);
   const [stateFilter, setStateFilter] = useState("ALL");
@@ -81,7 +85,6 @@ export default function Dashboard() {
 
   // Modals
   const [isRunModalOpen, setIsRunModalOpen] = useState(false);
-  const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
 
   // Feedback notifications
   const [toastMessage, setToastMessage] = useState(null);
@@ -89,6 +92,12 @@ export default function Dashboard() {
   const showNotification = (msg) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const handleCopyEmail = (emailStr) => {
+    if (!emailStr) return;
+    navigator.clipboard.writeText(emailStr);
+    showNotification(`Copied to clipboard: ${emailStr}`);
   };
 
   // 1. Fetch available runs
@@ -110,7 +119,7 @@ export default function Dashboard() {
         tier: tierFilter !== "ALL" ? tierFilter : undefined,
         query: searchQuery || undefined,
         state: stateFilter !== "ALL" ? stateFilter : undefined,
-        has_email: onlyWithEmail ? true : undefined,
+        has_linkedin: onlyWithLinkedIn ? true : undefined,
         has_phone: onlyWithPhone ? true : undefined,
         min_confidence: onlyHighConfidence ? 0.9 : undefined,
         limit: 500,
@@ -155,17 +164,49 @@ export default function Dashboard() {
     tierFilter,
     searchQuery,
     stateFilter,
-    onlyWithEmail,
+    onlyWithLinkedIn,
     onlyWithPhone,
     onlyHighConfidence,
   ]);
 
+  // Compute displayed leads based on local filters (e.g. source, region, email presence)
+  const displayedLeads = useMemo(() => {
+    return leads.filter((l) => {
+      if (intentSourceFilter === "LINKEDIN") {
+        const matchesLi =
+          (l.intent_source || "").toLowerCase().includes("linkedin") ||
+          (l.intent_status || "").toLowerCase().includes("linkedin") ||
+          l.has_recent_linkedin_post;
+        if (!matchesLi) return false;
+      } else if (intentSourceFilter === "INDEED") {
+        const matchesIndeed =
+          (l.intent_source || "").toLowerCase().includes("indeed") ||
+          (l.intent_status || "").toLowerCase().includes("indeed");
+        if (!matchesIndeed) return false;
+      }
+
+      if (regionFilter !== "ALL") {
+        const leadReg = (l.region || "US").toUpperCase();
+        if (leadReg !== regionFilter.toUpperCase()) return false;
+      }
+
+      if (emailFilter === "BOTH" && (!l.company_email || !l.decision_maker_email)) {
+        return false;
+      }
+      if (emailFilter === "COMPANY" && !l.company_email) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [leads, intentSourceFilter, regionFilter, emailFilter]);
+
   // Selection helpers
   const handleToggleSelectAll = () => {
-    if (selectedLeadIds.size === leads.length) {
+    if (selectedLeadIds.size === displayedLeads.length) {
       setSelectedLeadIds(new Set());
     } else {
-      const allKeys = new Set(leads.map((l) => l.company_name));
+      const allKeys = new Set(displayedLeads.map((l) => l.company_name));
       setSelectedLeadIds(allKeys);
     }
   };
@@ -184,8 +225,8 @@ export default function Dashboard() {
     try {
       const targetLeads =
         selectedLeadIds.size > 0
-          ? leads.filter((l) => selectedLeadIds.has(l.company_name))
-          : leads;
+          ? displayedLeads.filter((l) => selectedLeadIds.has(l.company_name))
+          : displayedLeads;
 
       leadsApi.exportToExcelClient(targetLeads, null, summary);
       showNotification(`Exported ${targetLeads.length} leads to Excel (.xlsx)`);
@@ -206,18 +247,6 @@ export default function Dashboard() {
       alert("Failed to export CSV");
     }
   };
-
-  const allDiscoveredEmails = useMemo(() => {
-    return leads.map((l) => l.email).filter(Boolean);
-  }, [leads]);
-
-  const selectedEmails = useMemo(() => {
-    if (selectedLeadIds.size === 0) return allDiscoveredEmails;
-    return leads
-      .filter((l) => selectedLeadIds.has(l.company_name))
-      .map((l) => l.email)
-      .filter(Boolean);
-  }, [leads, selectedLeadIds, allDiscoveredEmails]);
 
   // Unique states present in data
   const availableStates = useMemo(() => {
@@ -254,8 +283,7 @@ export default function Dashboard() {
             Bookkeeping Leads &amp; Decision Maker Discovery
           </h1>
           <p className="mt-1 text-xs sm:text-sm text-slate-400 max-w-2xl">
-            Finding small businesses (&lt;20 employees) with hiring/tax intent for bookkeeping services,
-            extracting official company and decision-maker LinkedIn profiles, websites, and phones.
+            Targeting US companies with 10–15 employees needing bookkeeping services, verified via company LinkedIn activity or Indeed job postings, with verified decision-maker emails.
           </p>
         </div>
 
@@ -489,11 +517,146 @@ export default function Dashboard() {
 
           {/* Filter Pills & Toggles */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* Region Filter Buttons */}
+            <div className="flex items-center rounded-xl border border-slate-800 bg-slate-950 p-0.5">
+              <button
+                type="button"
+                onClick={() => setRegionFilter("ALL")}
+                className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                  regionFilter === "ALL"
+                    ? "bg-slate-800 text-white font-semibold"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                All Regions
+              </button>
+              <button
+                type="button"
+                onClick={() => setRegionFilter("US")}
+                className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                  regionFilter === "US"
+                    ? "bg-indigo-500/20 text-indigo-300 font-semibold border border-indigo-500/30"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                🇺🇸 US
+              </button>
+              <button
+                type="button"
+                onClick={() => setRegionFilter("UK")}
+                className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                  regionFilter === "UK"
+                    ? "bg-indigo-500/20 text-indigo-300 font-semibold border border-indigo-500/30"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                🇬🇧 UK
+              </button>
+              <button
+                type="button"
+                onClick={() => setRegionFilter("AU")}
+                className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                  regionFilter === "AU"
+                    ? "bg-indigo-500/20 text-indigo-300 font-semibold border border-indigo-500/30"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                🇦🇺 AU
+              </button>
+              <button
+                type="button"
+                onClick={() => setRegionFilter("CA")}
+                className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                  regionFilter === "CA"
+                    ? "bg-indigo-500/20 text-indigo-300 font-semibold border border-indigo-500/30"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                🇨🇦 CA
+              </button>
+            </div>
+
+            {/* Email Coverage Filter */}
+            <div className="flex items-center rounded-xl border border-slate-800 bg-slate-950 p-0.5">
+              <button
+                type="button"
+                onClick={() => setEmailFilter("ALL")}
+                className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                  emailFilter === "ALL"
+                    ? "bg-slate-800 text-white font-semibold"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                All Emails
+              </button>
+              <button
+                type="button"
+                onClick={() => setEmailFilter("COMPANY")}
+                className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                  emailFilter === "COMPANY"
+                    ? "bg-emerald-500/20 text-emerald-300 font-semibold border border-emerald-500/30"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                Company Email Verified
+              </button>
+              <button
+                type="button"
+                onClick={() => setEmailFilter("BOTH")}
+                className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                  emailFilter === "BOTH"
+                    ? "bg-indigo-500/20 text-indigo-300 font-semibold border border-indigo-500/30"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                Both Emails Present
+              </button>
+            </div>
+
+            {/* Intent Source Filter Buttons */}
+            <div className="flex items-center rounded-xl border border-slate-800 bg-slate-950 p-0.5">
+              <button
+                type="button"
+                onClick={() => setIntentSourceFilter("ALL")}
+                className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                  intentSourceFilter === "ALL"
+                    ? "bg-slate-800 text-white font-semibold"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                All Sources
+              </button>
+              <button
+                type="button"
+                onClick={() => setIntentSourceFilter("LINKEDIN")}
+                className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                  intentSourceFilter === "LINKEDIN"
+                    ? "bg-sky-500/20 text-sky-300 font-semibold border border-sky-500/30"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <LinkedInIcon className="h-3 w-3 text-sky-400" />
+                <span>LinkedIn</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIntentSourceFilter("INDEED")}
+                className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                  intentSourceFilter === "INDEED"
+                    ? "bg-purple-500/20 text-purple-300 font-semibold border border-purple-500/30"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <Briefcase className="h-3 w-3 text-purple-400" />
+                <span>Indeed</span>
+              </button>
+            </div>
+
             {/* Has Decision Maker Profile Toggle */}
             <button
-              onClick={() => setOnlyWithEmail(!onlyWithEmail)}
+              onClick={() => setOnlyWithLinkedIn(!onlyWithLinkedIn)}
               className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors ${
-                onlyWithEmail
+                onlyWithLinkedIn
                   ? "border-indigo-500 bg-indigo-500/20 text-indigo-300 font-semibold"
                   : "border-slate-800 bg-slate-950 text-slate-400 hover:text-slate-200"
               }`}
@@ -520,12 +683,18 @@ export default function Dashboard() {
 
             {/* Reset all filters */}
             {(searchQuery ||
-              onlyWithEmail ||
+              onlyWithLinkedIn ||
+              intentSourceFilter !== "ALL" ||
+              regionFilter !== "ALL" ||
+              emailFilter !== "ALL" ||
               stateFilter !== "ALL") && (
               <button
                 onClick={() => {
                   setSearchQuery("");
-                  setOnlyWithEmail(false);
+                  setOnlyWithLinkedIn(false);
+                  setIntentSourceFilter("ALL");
+                  setRegionFilter("ALL");
+                  setEmailFilter("ALL");
                   setStateFilter("ALL");
                 }}
                 className="text-xs text-indigo-400 hover:underline px-2"
@@ -578,16 +747,19 @@ export default function Dashboard() {
                 <th className="py-3.5 pl-4 pr-2 w-10">
                   <input
                     type="checkbox"
-                    checked={leads.length > 0 && selectedLeadIds.size === leads.length}
+                    checked={displayedLeads.length > 0 && selectedLeadIds.size === displayedLeads.length}
                     onChange={handleToggleSelectAll}
                     className="rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-0 cursor-pointer"
                   />
                 </th>
-                <th className="py-3.5 px-3">Company Name</th>
-                <th className="py-3.5 px-3">Website</th>
-                <th className="py-3.5 px-3">Company LinkedIn</th>
+                <th className="py-3.5 px-3">Company &amp; Region</th>
+                <th className="py-3.5 px-3">Employees</th>
+                <th className="py-3.5 px-3">Website &amp; Phone</th>
+                <th className="py-3.5 px-3">Bookkeeping Intent &amp; Source</th>
+                <th className="py-3.5 px-3 text-emerald-400">Company Email (Min Req)</th>
                 <th className="py-3.5 px-3">Decision Maker</th>
-                <th className="py-3.5 px-3">Decision Maker LinkedIn</th>
+                <th className="py-3.5 px-3 text-indigo-400">Decision Maker Email</th>
+                <th className="py-3.5 px-3">LinkedIn Profiles</th>
                 <th className="py-3.5 pr-4 pl-3 text-right">Action</th>
               </tr>
             </thead>
@@ -596,16 +768,16 @@ export default function Dashboard() {
             <tbody className="divide-y divide-slate-800/60">
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} className="py-20 text-center text-slate-400">
+                  <td colSpan={10} className="py-20 text-center text-slate-400">
                     <div className="flex flex-col items-center justify-center gap-3">
                       <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
                       <p className="font-medium text-slate-300">Loading discovered company leads...</p>
                     </div>
                   </td>
                 </tr>
-              ) : leads.length === 0 ? (
+              ) : displayedLeads.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-20 text-center text-slate-400">
+                  <td colSpan={10} className="py-20 text-center text-slate-400">
                     <div className="flex flex-col items-center justify-center gap-3">
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-800/60 text-slate-500">
                         <Building2 className="h-6 w-6" />
@@ -625,11 +797,18 @@ export default function Dashboard() {
                   </td>
                 </tr>
               ) : (
-                leads.map((lead, idx) => {
+                displayedLeads.map((lead, idx) => {
                   const isSelected = selectedLeadIds.has(lead.company_name);
                   const companyLi = lead.company_linkedin_url || lead.linkedin;
                   const dmLarge = lead.decision_maker_linkedin_url;
                   const dmName = lead.decision_maker_name || lead.owner_name;
+                  const dmTitle = lead.decision_maker_title || lead.owner_title;
+                  const compEmail = lead.company_email;
+                  const dmEmail = lead.decision_maker_email || (lead.email !== compEmail ? lead.email : null);
+                  const regCode = (lead.region || "US").toUpperCase();
+                  const isIndeed = (lead.intent_source || "").toLowerCase().includes("indeed") || (lead.intent_status || "").toLowerCase().includes("indeed");
+                  const isLinkedIn = (lead.intent_source || "").toLowerCase().includes("linkedin") || (lead.intent_status || "").toLowerCase().includes("linkedin");
+                  const isConfirmed = lead.intent_status?.startsWith("CONFIRMED") || isIndeed || isLinkedIn;
 
                   return (
                     <tr
@@ -648,10 +827,15 @@ export default function Dashboard() {
                         />
                       </td>
 
-                      {/* 1. Company Name */}
+                      {/* 1. Company Name & Region */}
                       <td className="py-3.5 px-3">
-                        <div className="font-bold text-slate-100 group-hover:text-indigo-300 transition-colors flex items-center gap-2">
-                          <span>{lead.company_name}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-100 group-hover:text-indigo-300 transition-colors">
+                            {lead.company_name}
+                          </span>
+                          <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold bg-slate-800 text-indigo-300 border border-slate-700">
+                            {regCode === "US" ? "🇺🇸 US" : regCode === "UK" ? "🇬🇧 UK" : regCode === "AU" ? "🇦🇺 AU" : regCode === "CA" ? "🇨🇦 CA" : regCode}
+                          </span>
                         </div>
                         {lead.location && (
                           <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-slate-400">
@@ -661,72 +845,188 @@ export default function Dashboard() {
                         )}
                       </td>
 
-                      {/* 2. Website */}
+                      {/* Employees (10-15) */}
                       <td className="py-3.5 px-3">
-                        {lead.website ? (
-                          <a
-                            href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 font-semibold text-indigo-400 hover:text-indigo-300 hover:underline max-w-[200px] truncate"
-                          >
-                            <Globe className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
-                            <span>{lead.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}</span>
-                            <ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
-                          </a>
+                        {lead.employee_count ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-800 px-2.5 py-1 text-[11px] font-semibold text-slate-200 border border-slate-700">
+                            <Users className="h-3 w-3 text-indigo-400" />
+                            <span>{lead.employee_count}</span>
+                          </span>
                         ) : (
-                          <span className="text-slate-600 italic">—</span>
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400 border border-emerald-500/20">
+                            10–15
+                          </span>
                         )}
                       </td>
 
-                      {/* 3. Company LinkedIn */}
+                      {/* 2. Website & Phone */}
                       <td className="py-3.5 px-3">
-                        {companyLi ? (
-                          <a
-                            href={companyLi.startsWith("http") ? companyLi : `https://${companyLi}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2.5 py-1 text-[11px] font-semibold text-sky-400 hover:bg-sky-500/20 hover:text-sky-300 transition-all max-w-[180px] truncate"
-                          >
-                            <LinkedInIcon className="h-3.5 w-3.5 shrink-0 text-sky-400" />
-                            <span className="truncate">{companyLi.replace(/^https?:\/\/(www\.)?linkedin\.com\/company\//, "").replace(/\/$/, "") || "Company Page"}</span>
-                            <ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
-                          </a>
+                        <div className="flex flex-col gap-0.5">
+                          {lead.website ? (
+                            <a
+                              href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 font-semibold text-indigo-400 hover:text-indigo-300 hover:underline max-w-[190px] truncate"
+                            >
+                              <Globe className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                              <span className="truncate">{lead.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}</span>
+                              <ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
+                            </a>
+                          ) : (
+                            <span className="text-slate-600 italic">—</span>
+                          )}
+                          {lead.phone && (
+                            <span className="text-[11px] text-slate-400 font-mono">
+                              {lead.phone}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* 3. Bookkeeping Intent & Source */}
+                      <td className="py-3.5 px-3 min-w-[230px]">
+                        <div className="flex flex-col gap-1">
+                          {isIndeed ? (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-500/15 border border-purple-500/30 px-2.5 py-0.5 text-[10px] font-bold text-purple-300 w-fit">
+                              <Briefcase className="h-3 w-3 text-purple-400" /> Confirmed via Indeed
+                            </span>
+                          ) : isLinkedIn ? (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-500/15 border border-sky-500/30 px-2.5 py-0.5 text-[10px] font-bold text-sky-300 w-fit">
+                              <LinkedInIcon className="h-3 w-3 text-sky-400" /> Confirmed via LinkedIn
+                            </span>
+                          ) : isConfirmed ? (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 text-[10px] font-bold text-emerald-300 w-fit">
+                              <CheckCircle2 className="h-3 w-3 text-emerald-400" /> Confirmed
+                            </span>
+                          ) : (
+                            <span className="inline-flex rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-bold text-slate-400 w-fit">
+                              {lead.intent_status || "Not checked"}
+                            </span>
+                          )}
+                          {lead.intent_reason && (
+                            <span className="block max-w-xs text-[11px] text-slate-400 leading-tight">
+                              {lead.intent_reason}
+                            </span>
+                          )}
+                          {lead.indeed_job_url && (
+                            <a
+                              href={lead.indeed_job_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-400 hover:text-purple-300 hover:underline"
+                            >
+                              <span>View Indeed Job Posting</span>
+                              <ExternalLink className="h-2.5 w-2.5" />
+                            </a>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* 4. Company Email (Required Minimum) */}
+                      <td className="py-3.5 px-3 min-w-[210px]">
+                        {compEmail ? (
+                          <div className="flex flex-col gap-0.5">
+                            <div className="flex items-center gap-1.5">
+                              <Mail className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                              <a href={`mailto:${compEmail}`} className="font-semibold text-emerald-300 hover:underline truncate max-w-[160px]">
+                                {compEmail}
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyEmail(compEmail)}
+                                title="Copy Company Email"
+                                className="text-slate-400 hover:text-white p-0.5 transition-colors"
+                              >
+                                <Copy className="h-3 w-3" />
+                              </button>
+                            </div>
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400">
+                              <CheckCircle2 className="h-2.5 w-2.5" /> Company Email Verified
+                            </span>
+                          </div>
                         ) : (
-                          <span className="text-slate-600 italic">—</span>
+                          <span className="inline-flex items-center gap-1 text-[11px] text-amber-400/90 font-medium italic">
+                            <AlertCircle className="h-3 w-3 text-amber-400" /> Pending / Missing
+                          </span>
                         )}
                       </td>
 
-                      {/* 4. Decision Maker Name (Optional) */}
+                      {/* 5. Decision Maker Name & Title */}
                       <td className="py-3.5 px-3">
                         {dmName ? (
-                          <div className="flex items-center gap-1.5">
-                            <Users className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
-                            <span className="font-medium text-slate-200 truncate max-w-[170px]">
-                              {dmName}
-                            </span>
+                          <div className="flex flex-col">
+                            <div className="flex items-center gap-1.5 font-medium text-slate-200 truncate max-w-[170px]">
+                              <Users className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                              <span>{dmName}</span>
+                            </div>
+                            {dmTitle && (
+                              <span className="text-[10px] text-slate-400 pl-5 truncate max-w-[170px]">
+                                {dmTitle}
+                              </span>
+                            )}
                           </div>
                         ) : (
                           <span className="text-slate-500 italic text-[11px]">Not resolved</span>
                         )}
                       </td>
 
-                      {/* 5. Decision Maker LinkedIn */}
-                      <td className="py-3.5 px-3">
-                        {dmLarge ? (
-                          <a
-                            href={dmLarge.startsWith("http") ? dmLarge : `https://${dmLarge}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-1 text-[11px] font-semibold text-indigo-300 hover:bg-indigo-500/20 hover:text-indigo-200 transition-all max-w-[200px] truncate"
-                          >
-                            <LinkedInIcon className="h-3.5 w-3.5 shrink-0 text-indigo-400" />
-                            <span className="truncate">{dmLarge.replace(/^https?:\/\/(www\.)?linkedin\.com\/in\//, "").replace(/\/$/, "") || "Profile URL"}</span>
-                            <ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
-                          </a>
+                      {/* 6. Decision Maker Email */}
+                      <td className="py-3.5 px-3 min-w-[210px]">
+                        {dmEmail ? (
+                          <div className="flex flex-col gap-0.5">
+                            <div className="flex items-center gap-1.5">
+                              <Mail className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                              <a href={`mailto:${dmEmail}`} className="font-semibold text-indigo-300 hover:underline truncate max-w-[160px]">
+                                {dmEmail}
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyEmail(dmEmail)}
+                                title="Copy Decision Maker Email"
+                                className="text-slate-400 hover:text-white p-0.5 transition-colors"
+                              >
+                                <Copy className="h-3 w-3" />
+                              </button>
+                            </div>
+                            <span className={`text-[10px] font-bold ${lead.email_status === "VALID" ? "text-emerald-400" : "text-amber-400"}`}>
+                              {lead.email_status === "VALID" ? "✓ Deliverable Decision Maker" : (lead.email_status || "Verified")}
+                            </span>
+                          </div>
                         ) : (
-                          <span className="text-slate-600 italic">—</span>
+                          <span className="text-slate-500 italic text-[11px]">Pending / Not found</span>
                         )}
+                      </td>
+
+                      {/* 7. LinkedIn Profiles (Company & Decision Maker) */}
+                      <td className="py-3.5 px-3">
+                        <div className="flex flex-col gap-1">
+                          {companyLi && (
+                            <a
+                              href={companyLi.startsWith("http") ? companyLi : `https://${companyLi}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 hover:underline max-w-[160px] truncate"
+                            >
+                              <LinkedInIcon className="h-3 w-3 shrink-0 text-sky-400" />
+                              <span className="truncate">Company Page</span>
+                              <ExternalLink className="h-2.5 w-2.5 opacity-70" />
+                            </a>
+                          )}
+                          {dmLarge && (
+                            <a
+                              href={dmLarge.startsWith("http") ? dmLarge : `https://${dmLarge}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300 hover:underline max-w-[160px] truncate"
+                            >
+                              <LinkedInIcon className="h-3 w-3 shrink-0 text-indigo-400" />
+                              <span className="truncate">DM Profile</span>
+                              <ExternalLink className="h-2.5 w-2.5 opacity-70" />
+                            </a>
+                          )}
+                          {!companyLi && !dmLarge && <span className="text-slate-600 italic">—</span>}
+                        </div>
                       </td>
 
                       {/* Action */}

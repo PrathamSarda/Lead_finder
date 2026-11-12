@@ -83,7 +83,16 @@ class LeadDatabase:
                 """
             )
             # Gracefully ensure new columns exist in pre-existing database tables
-            for col in ("company_linkedin_url", "decision_maker_linkedin_url"):
+            for col in (
+                "company_linkedin_url",
+                "decision_maker_linkedin_url",
+                "intent_source",
+                "indeed_job_url",
+                "company_email",
+                "decision_maker_email",
+                "region",
+                "after_date",
+            ):
                 try:
                     cursor.execute(f"ALTER TABLE companies ADD COLUMN {col} TEXT;")
                 except sqlite3.OperationalError:
@@ -146,6 +155,10 @@ class LeadDatabase:
         owner_title: Optional[str] = None,
         decision_maker_linkedin_url: Optional[str] = None,
         owner_email: Optional[str] = None,
+        company_email: Optional[str] = None,
+        decision_maker_email: Optional[str] = None,
+        region: Optional[str] = None,
+        after_date: Optional[str] = None,
         status: str = "QUALIFIED_CONVERTIBLE",
         confidence: float = 0.0,
         source: Optional[str] = None,
@@ -154,6 +167,7 @@ class LeadDatabase:
         norm_name = _normalize_name(company_name)
         norm_dom = _normalize_domain(domain or website)
         now_iso = datetime.now().isoformat()
+        dm_email = decision_maker_email or owner_email
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -186,6 +200,10 @@ class LeadDatabase:
                         owner_title = COALESCE(?, owner_title),
                         decision_maker_linkedin_url = COALESCE(?, decision_maker_linkedin_url),
                         owner_email = COALESCE(?, owner_email),
+                        company_email = COALESCE(?, company_email),
+                        decision_maker_email = COALESCE(?, decision_maker_email),
+                        region = COALESCE(?, region),
+                        after_date = COALESCE(?, after_date),
                         status = ?,
                         confidence = MAX(confidence, ?),
                         source = COALESCE(?, source),
@@ -205,7 +223,11 @@ class LeadDatabase:
                         owner_name,
                         owner_title,
                         decision_maker_linkedin_url,
-                        owner_email,
+                        dm_email,
+                        company_email,
+                        dm_email,
+                        region,
+                        after_date,
                         status,
                         confidence,
                         source,
@@ -221,8 +243,9 @@ class LeadDatabase:
                         company_name, normalized_name, domain, normalized_domain, website,
                         phone, address, category, employee_count, company_linkedin_url,
                         owner_name, owner_title, decision_maker_linkedin_url, owner_email,
+                        company_email, decision_maker_email, region, after_date,
                         status, confidence, source, first_seen_at, last_processed_at, run_count
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                     """,
                     (
                         company_name,
@@ -238,7 +261,11 @@ class LeadDatabase:
                         owner_name,
                         owner_title,
                         decision_maker_linkedin_url,
-                        owner_email,
+                        dm_email,
+                        company_email,
+                        dm_email,
+                        region,
+                        after_date,
                         status,
                         confidence,
                         source,

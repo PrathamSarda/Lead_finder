@@ -17,6 +17,10 @@ class SearchFilters:
 
     max_results: int = 100
 
+    state: str | None = None
+
+    city: str | None = None
+
     enabled_sources: List[str] = field(
         default_factory=lambda: [
             "google",

@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api/v1"
     # LLM
     GEMINI_API_KEY: str = ""
+    HUNTER_API_KEY: str = ""
+    SERPER_API_KEY: str = ""
+    APIFY_API_TOKEN: str = ""
+    APIFY_LINKEDIN_COMPANY_ACTOR: str = "socialdataapi/linkedin-company-scraper"
+    APIFY_LINKEDIN_POSTS_ACTOR: str = "atomus/linkedin-company-posts-scraper"
 
     # Security
     SECRET_KEY: str = "change-this-to-a-long-random-string"

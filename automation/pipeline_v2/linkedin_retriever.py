@@ -1,6 +1,5 @@
 """
-LinkedIn Profile Retrieval Service (Pipeline Step 5).
-Replaces Hunter.io to eliminate fixed monthly software costs.
+LinkedIn Profile Retrieval Service (Pipeline final stage).
 Extracts:
 1. Official Company LinkedIn URL (from Apify profile or Serper search)
 2. Decision-Maker's Name, Title, and Direct Personal LinkedIn Profile URL (via Serper Google search)
