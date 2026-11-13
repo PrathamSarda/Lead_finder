@@ -107,6 +107,10 @@ class JobIntentDiscovery:
             search_queries.append(f'site:linkedin.com/jobs/view {role} "{country_name}" {location_part}'.strip())
             # Indeed
             search_queries.append(f'site:{indeed_domain}/viewjob {role} {location_part}'.strip())
+            # ZipRecruiter
+            if reg_upper == "US":
+                search_queries.append(f'site:ziprecruiter.com/c {role} {location_part}'.strip())
+                search_queries.append(f'site:ziprecruiter.com/jobs {role} {location_part}'.strip())
             # Monster
             search_queries.append(f'site:monster.com/job-openings {role} {location_part}'.strip())
 
@@ -117,6 +121,17 @@ class JobIntentDiscovery:
         candidates: List[HiringIntentLeadCandidate] = []
         seen_companies: set[str] = set()
 
+        # Build Serper time-based filter (tbs) parameter if cutoff_date is set
+        tbs = None
+        if cutoff_date:
+            days_diff = (date.today() - cutoff_date).days
+            if days_diff <= 7:
+                tbs = "qdr:w"
+            elif days_diff <= 31:
+                tbs = "qdr:m"
+            elif days_diff <= 365:
+                tbs = "qdr:y"
+
         for q in search_queries:
             if len(candidates) >= limit:
                 break
@@ -124,6 +139,8 @@ class JobIntentDiscovery:
             try:
                 # Always use num=10 for standard Serper compatibility
                 payload = {"q": q, "num": 10, "gl": gl}
+                if tbs:
+                    payload["tbs"] = tbs
                 resp = requests.post(
                     self.SERPER_SEARCH_URL,
                     headers={"X-API-KEY": self.serper_key, "Content-Type": "application/json"},
@@ -212,6 +229,30 @@ class JobIntentDiscovery:
             if mon_match:
                 role = mon_match.group(1).strip()
                 company = mon_match.group(2).strip()
+
+        # Pattern 2b (ZipRecruiter standard):
+        # Title examples: "Bookkeeper Job in Dallas, TX - ACME | ZipRecruiter" or "Bookkeeper - ACME - Dallas | ZipRecruiter"
+        if not company and "ziprecruiter.com" in link:
+            zr_clean = re.sub(r"\s*\|\s*ZipRecruiter.*$", "", title, flags=re.I).strip()
+            zr_job_match = re.search(r"^(.*?)\s+Job\s+in\s+.*?-\s+([^\-\|]+)$", zr_clean, re.I)
+            if zr_job_match:
+                role = role or zr_job_match.group(1).strip()
+                company = zr_job_match.group(2).strip()
+            elif " at " in zr_clean:
+                zr_at_match = re.search(r"^(.*?)\s+at\s+([^\—\-\|]+)", zr_clean, re.I)
+                if zr_at_match:
+                    role = role or zr_at_match.group(1).strip()
+                    company = zr_at_match.group(2).strip()
+            elif " - " in zr_clean:
+                zr_parts = [p.strip() for p in zr_clean.split(" - ")]
+                if len(zr_parts) >= 2:
+                    role = role or zr_parts[0]
+                    company = zr_parts[1]
+            # Fallback to URL path: /c/Company-Name/Job/...
+            if not company:
+                zr_url_match = re.search(r"/c/([a-z0-9\-]+)/Job", link, re.I)
+                if zr_url_match:
+                    company = zr_url_match.group(1).replace("-", " ").title().strip()
 
         # Pattern 3 (LinkedIn snippet): "Apply for [Role] at [Company] in ..."
         if (not company or len(company) > 50) and "linkedin.com" in link:

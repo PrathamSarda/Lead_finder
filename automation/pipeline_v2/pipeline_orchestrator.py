@@ -78,6 +78,7 @@ class QualifiedB2BLead:
 CLIENT_LEADS_FIELDNAMES = [
     "company_name",
     "company_type",
+    "pipeline_status",
     "region",
     "employee_count",
     "phone",

@@ -156,8 +156,14 @@ def parse_csv_lead(row: Dict[str, str], source_file: str) -> Dict[str, Any]:
         row.get("Lead Status")
         or row.get("pipeline_status")
         or row.get("status")
-        or "UNRESOLVED"
+        or ""
     ).strip().upper()
+
+    # If the file is a client ready export (which contains verified qualified leads), default to QUALIFIED_CONVERTIBLE
+    if not status_raw and ("ready" in source_file.lower() or company_email or decision_maker_email):
+        status_raw = "QUALIFIED_CONVERTIBLE"
+    elif not status_raw:
+        status_raw = "UNRESOLVED"
 
     # Normalize status for dashboard display
     if status_raw in ("READY_FOR_OUTREACH", "QUALIFIED_CONVERTIBLE", "VERIFIED"):
@@ -710,7 +716,11 @@ def get_leads(
         filtered = [r for r in filtered if r["status"] == status.upper()]
 
     if tier and tier.upper() != "ALL":
-        filtered = [r for r in filtered if r["lead_tier"] == tier.upper()]
+        t_up = tier.upper()
+        if t_up == "VERIFIED":
+            filtered = [r for r in filtered if r["status"] == "VERIFIED"]
+        else:
+            filtered = [r for r in filtered if r["lead_tier"] == t_up]
 
     if state and state.upper() != "ALL":
         st = state.upper().strip()
@@ -1097,19 +1107,27 @@ def export_leads_csv(
 
         row = {
             "company_name": str(lead.get("company_name", "") or ""),
+            "company_type": str(lead.get("company_type", "") or lead.get("category", "") or ""),
+            "region": str(lead.get("region", "") or "US"),
             "location": str(lead.get("location", "") or ""),
             "status": str(lead.get("status", "UNRESOLVED") or "UNRESOLVED"),
             "lead_tier": str(lead.get("lead_tier", "UNRESOLVED") or "UNRESOLVED"),
-            "status_reason": str(lead.get("status_reason", "") or ""),
+            "status_reason": str(lead.get("status_reason", "") or lead.get("ai_intent_reason", "") or ""),
+            "employee_count": str(lead.get("employee_count", "") or ""),
             "website": str(lead.get("website", "") or ""),
             "website_status": str(lead.get("website_status", "UNRESOLVED") or "UNRESOLVED"),
             "website_source": str(lead.get("website_source", "") or ""),
-            "email": str(lead.get("email", "") or ""),
+            "company_email": str(lead.get("company_email", "") or ""),
+            "email": str(lead.get("email", "") or lead.get("company_email", "") or ""),
             "email_status": str(lead.get("email_status", "UNRESOLVED") or "UNRESOLVED"),
             "email_source": str(lead.get("email_source", "") or ""),
             "decision_maker_name": str(lead.get("decision_maker_name", "") or ""),
             "decision_maker_title": str(lead.get("decision_maker_title", "") or ""),
+            "decision_maker_email": str(lead.get("decision_maker_email", "") or ""),
             "decision_maker_linkedin_url": str(lead.get("decision_maker_linkedin_url", "") or ""),
+            "job_post_url": str(lead.get("job_post_url", "") or lead.get("indeed_job_url", "") or ""),
+            "indeed_job_url": str(lead.get("indeed_job_url", "") or ""),
+            "company_linkedin_url": str(lead.get("company_linkedin_url", "") or ""),
             "has_recent_linkedin_post": str(bool(lead.get("has_recent_linkedin_post", False))),
             "email_confidence": str(lead.get("email_confidence", "") or ""),
             "phone": str(lead.get("phone", "") or ""),

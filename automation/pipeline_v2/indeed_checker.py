@@ -40,25 +40,34 @@ def parse_listing_date(raw_date: str | None, snippet: str = "", today: date | No
     """Parse relative or absolute date from Google search result or snippet."""
     today = today or date.today()
     candidate_text = (raw_date or "").strip()
-    
-    # If no explicit date field, check snippet for 'Posted X days ago'
-    if not candidate_text and snippet:
-        match = re.search(r"(?:posted|active)\s*:?\s*(\d+\+?\s*(?:day|week|month|hour)s?\s*ago)", snippet, re.I)
-        if match:
-            candidate_text = match.group(1)
+    search_scope = f"{candidate_text} {snippet}".strip()
 
-    if not candidate_text:
+    if not search_scope:
         return None
 
-    # Handle relative e.g. "3 days ago", "1 week ago", "2 months ago", "5 hours ago"
-    rel_match = re.search(r"(\d+)\+?\s*(hour|day|week|month|year)s?\s*ago", candidate_text, re.I)
+    # Handle relative e.g. "3 days ago", "1 week ago", "2 months ago", "11 months ago", "5 hours ago", "30+ days ago"
+    rel_match = re.search(r"(\d+)\+?\s*(hour|day|week|month|year)s?\s*ago", search_scope, re.I)
     if rel_match:
         n = int(rel_match.group(1))
         unit = rel_match.group(2).lower()
         days = n * {"hour": 0, "day": 1, "week": 7, "month": 30, "year": 365}[unit]
         return today - timedelta(days=days)
 
-    # Try common absolute date formats
+    # Search for absolute date patterns: "Nov 10, 2023", "November 10, 2023", "10 Nov 2023", "2023-11-10"
+    abs_match = re.search(
+        r"\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2}),?\s+(\d{4})\b",
+        search_scope,
+        re.I,
+    )
+    if abs_match:
+        month_str, day_str, year_str = abs_match.groups()
+        for fmt in ("%b %d %Y", "%B %d %Y"):
+            try:
+                return datetime.strptime(f"{month_str[:3]} {day_str} {year_str}", "%b %d %Y").date()
+            except ValueError:
+                pass
+
+    # Try common absolute date formats directly
     for fmt in ("%Y-%m-%d", "%b %d, %Y", "%B %d, %Y", "%d %b %Y", "%d %B %Y"):
         try:
             return datetime.strptime(candidate_text, fmt).date()
@@ -137,7 +146,7 @@ class IndeedBookkeepingChecker:
         clean_company = re.sub(r"\b(llc|inc|corp|corporation|company|co|ltd)\b", "", company_name, flags=re.I).strip()
         
         # Sourcing from Serper Google Search with site:indeed
-        results = self._search_indeed_postings(clean_company, domain=domain, location=location, region=region)
+        results = self._search_indeed_postings(clean_company, domain=domain, location=location, region=region, cutoff_date=cutoff_date)
 
         for item in results:
             title = item.get("title", "")
@@ -187,6 +196,7 @@ class IndeedBookkeepingChecker:
         domain: str | None = None,
         location: str | None = None,
         region: str = "US",
+        cutoff_date: date | None = None,
     ) -> list[dict[str, Any]]:
         """Search Indeed for bookkeeping and accounting positions for the given company in the specified region."""
         if not self.serper_key:
@@ -206,12 +216,26 @@ class IndeedBookkeepingChecker:
         all_items: list[dict[str, Any]] = []
         seen_links: set[str] = set()
 
+        # Build payload with time filtering if cutoff_date is provided
+        tbs = None
+        if cutoff_date:
+            days_diff = (date.today() - cutoff_date).days
+            if days_diff <= 7:
+                tbs = "qdr:w"
+            elif days_diff <= 31:
+                tbs = "qdr:m"
+            elif days_diff <= 365:
+                tbs = "qdr:y"
+
         for q in queries:
             try:
+                payload: dict[str, Any] = {"q": q, "num": 5, "gl": gl}
+                if tbs:
+                    payload["tbs"] = tbs
                 resp = requests.post(
                     self.SERPER_SEARCH_URL,
                     headers={"X-API-KEY": self.serper_key, "Content-Type": "application/json"},
-                    json={"q": q, "num": 5, "gl": gl},
+                    json=payload,
                     timeout=10,
                 )
                 if resp.status_code == 200:
